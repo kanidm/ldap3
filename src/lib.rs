@@ -41,7 +41,8 @@ impl Decoder for LdapServerCodec {
     }
 }
 
-impl Encoder<LdapMsg> for LdapServerCodec {
+impl Encoder for LdapServerCodec {
+    type Item = LdapMsg;
     type Error = io::Error;
 
     fn encode(&mut self, msg: LdapMsg, buf: &mut BytesMut) -> io::Result<()> {
@@ -60,23 +61,95 @@ mod tests {
     // use std::convert::TryInto;
     use lber::structures::Tag;
 
+    macro_rules! do_test {
+        ($req:expr) => {{
+            let mut buf = BytesMut::new();
+            let mut server_codec = LdapServerCodec;
+            assert!(server_codec.encode($req.clone(), &mut buf).is_ok());
+            let res = server_codec.decode(&mut buf).expect("failed to decode");
+            let msg = res.expect("None found?");
+            println!("{:?}", msg);
+            assert!($req == msg)
+        }};
+    }
+
     #[test]
     fn test_ldapserver_codec_simplebind() {
-        let mut buf = BytesMut::new();
-        let mut server_codec = LdapServerCodec;
-        // Encode a request
-        let req = LdapMsg {
+        do_test!(LdapMsg {
             msgid: 1,
             op: LdapOp::SimpleBind(LdapSimpleBind::new_anonymous()),
             ctrl: vec![],
-        };
-        assert!(server_codec.encode(req.clone(), &mut buf).is_ok());
-        // Now pass it to the "server" to decode.
-        println!("{:?}", buf);
+        });
+    }
 
-        let res = server_codec.decode(&mut buf).expect("failed to decode");
-        let msg = res.expect("None found?");
-        println!("{:?}", msg);
-        assert!(req == msg)
+    #[test]
+    fn test_ldapserver_codec_unbind() {
+        do_test!(LdapMsg {
+            msgid: 65536,
+            op: LdapOp::UnbindRequest,
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_bindresponse() {
+        do_test!(LdapMsg {
+            msgid: 999999,
+            op: LdapOp::BindResponse(LdapBindResponse {
+                res: LdapResult {
+                    code: LdapResultCode::Success,
+                    matcheddn: "cn=Directory Manager".to_string(),
+                    message: "It works!".to_string(),
+                    referral: vec![],
+                },
+                saslcreds: None
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_extendedrequest() {
+        do_test!(LdapMsg {
+            msgid: 256,
+            op: LdapOp::ExtendedRequest(LdapExtendedRequest {
+                name: "1.3.6.1.4.1.4203.1.11.3".to_string(),
+                value: None,
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_extendedresponse() {
+        do_test!(LdapMsg {
+            msgid: 257,
+            op: LdapOp::ExtendedResponse(LdapExtendedResponse {
+                res: LdapResult {
+                    code: LdapResultCode::Success,
+                    matcheddn: "".to_string(),
+                    message: "".to_string(),
+                    referral: vec![],
+                },
+                name: Some("1.3.6.1.4.1.4203.1.11.3".to_string()),
+                value: None,
+            }),
+            ctrl: vec![],
+        });
+
+        do_test!(LdapMsg {
+            msgid: 257,
+            op: LdapOp::ExtendedResponse(LdapExtendedResponse {
+                res: LdapResult {
+                    code: LdapResultCode::Success,
+                    matcheddn: "".to_string(),
+                    message: "".to_string(),
+                    referral: vec![],
+                },
+                name: None,
+                value: Some("hello".to_string()),
+            }),
+            ctrl: vec![],
+        });
     }
 }

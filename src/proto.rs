@@ -1,7 +1,7 @@
 use lber::common::TagClass;
 use lber::structure::{StructureTag, PL};
 use lber::structures::ASNTag;
-use lber::structures::{Boolean, Enumerated, Integer, Null, OctetString, Sequence, Set, Tag};
+use lber::structures::{Enumerated, Integer, Null, OctetString, Sequence, Tag};
 use lber::universal::Types;
 use std::convert::{From, TryFrom};
 use std::iter::once_with;
@@ -14,14 +14,107 @@ pub struct LdapMsg {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(i64)]
+pub enum LdapResultCode {
+    Success = 0,
+    OperationsError = 1,
+    ProtocolError = 2,
+    TimeLimitExceeded = 3,
+    SizeLimitExceeded = 4,
+    CompareFalse = 5,
+    CompareTrue = 6,
+    AuthMethodNotSupported = 7,
+    StrongerAuthRequired = 8,
+    // 9 reserved?
+    Referral = 10,
+    AdminLimitExceeded = 11,
+    UnavailableCriticalExtension = 12,
+    ConfidentialityRequired = 13,
+    SaslBindInProgress = 14,
+    // 15 ?
+    NoSuchAttribute = 16,
+    UndefinedAttributeType = 17,
+    InappropriateMatching = 18,
+    ConstraintViolation = 19,
+    AttributeOrValueExists = 20,
+    InvalidAttributeSyntax = 21,
+    //22 31
+    NoSuchObject = 32,
+    AliasProblem = 33,
+    InvalidDNSyntax = 34,
+    // 35
+    AliasDereferencingProblem = 35,
+    // 36 - 47
+    InappropriateAuthentication = 48,
+    InvalidCredentials = 49,
+    InsufficentAccessRights = 50,
+    Busy = 51,
+    Unavailable = 52,
+    UnwillingToPerform = 53,
+    LoopDetect = 54,
+    // 55 - 63
+    NamingViolation = 64,
+    ObjectClassViolation = 65,
+    NotAllowedOnNonLeaf = 66,
+    NotALlowedOnRDN = 67,
+    EntryAlreadyExists = 68,
+    ObjectClassModsProhibited = 69,
+    // 70
+    AffectsMultipleDSAs = 71,
+    // 72 - 79
+    Other = 80,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapResult {
+    pub code: LdapResultCode,
+    pub matcheddn: String,
+    pub message: String,
+    pub referral: Vec<()>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum LdapOp {
     SimpleBind(LdapSimpleBind),
+    BindResponse(LdapBindResponse),
+    UnbindRequest,
+    // https://tools.ietf.org/html/rfc4511#section-4.5
+    // 3 -> SearchRequest
+    // 4 -> SearchResultEntry
+    // 5 -> SearchResultDone
+
+    // https://tools.ietf.org/html/rfc4511#section-4.12
+    ExtendedRequest(LdapExtendedRequest),
+    ExtendedResponse(LdapExtendedResponse),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapSimpleBind {
     pub dn: String,
     pub pw: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapBindResponse {
+    pub res: LdapResult,
+    pub saslcreds: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapExtendedRequest {
+    // 0
+    pub name: String,
+    // 1
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapExtendedResponse {
+    pub res: LdapResult,
+    // 10
+    pub name: Option<String>,
+    // 11
+    pub value: Option<String>,
 }
 
 impl LdapOp {
@@ -63,6 +156,16 @@ impl From<LdapSimpleBind> for Tag {
                 }),
             ],
         })
+    }
+}
+
+impl LdapMsg {
+    pub fn new(msgid: i32, op: LdapOp) -> Self {
+        LdapMsg {
+            msgid,
+            op,
+            ctrl: Vec::new(),
+        }
     }
 }
 
@@ -145,7 +248,7 @@ impl TryFrom<StructureTag> for LdapMsg {
             .and_then(|t| t.match_class(TagClass::Context))
             .and_then(|t| t.match_id(0))
             // So it's probably controls, decode them?
-            .map(|t| Vec::new())
+            .map(|_t| Vec::new())
             .unwrap_or_else(|| Vec::new());
 
         Ok(LdapMsg { msgid, op, ctrl })
@@ -155,7 +258,7 @@ impl TryFrom<StructureTag> for LdapMsg {
 impl From<LdapMsg> for StructureTag {
     fn from(value: LdapMsg) -> StructureTag {
         let LdapMsg { msgid, op, ctrl } = value;
-        let mut seq: Vec<_> = once_with(|| {
+        let seq: Vec<_> = once_with(|| {
             Some(Tag::Integer(Integer {
                 inner: msgid as i64,
                 ..Default::default()
@@ -187,28 +290,57 @@ impl TryFrom<StructureTag> for LdapOp {
         if class != TagClass::Application {
             return Err(());
         }
-        match id {
+        match (id, payload) {
             // https://tools.ietf.org/html/rfc4511#section-4.2
             // BindRequest
-            0 => match payload {
-                PL::C(inner) => LdapSimpleBind::try_from(inner).map(|v| LdapOp::SimpleBind(v)),
-                _ => Err(()),
-            },
-            _ => Err(()),
+            (0, PL::C(inner)) => LdapSimpleBind::try_from(inner).map(|v| LdapOp::SimpleBind(v)),
+            // BindResponse
+            (1, PL::C(inner)) => LdapBindResponse::try_from(inner).map(|v| LdapOp::BindResponse(v)),
+            // UnbindRequest
+            (2, _) => Ok(LdapOp::UnbindRequest),
+            (23, PL::C(inner)) => {
+                LdapExtendedRequest::try_from(inner).map(|v| LdapOp::ExtendedRequest(v))
+            }
+            (24, PL::C(inner)) => {
+                LdapExtendedResponse::try_from(inner).map(|v| LdapOp::ExtendedResponse(v))
+            }
+            (id, _) => {
+                println!("unknown op -> {:?}", id);
+                Err(())
+            }
         }
     }
 }
 
 impl From<LdapOp> for Tag {
     fn from(value: LdapOp) -> Tag {
-        let (id, inner) = match value {
-            LdapOp::SimpleBind(lsb) => (0, lsb.into()),
-        };
-        Tag::Sequence(Sequence {
-            class: TagClass::Application,
-            id,
-            inner,
-        })
+        match value {
+            LdapOp::SimpleBind(lsb) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 0,
+                inner: lsb.into(),
+            }),
+            LdapOp::BindResponse(lbr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 1,
+                inner: lbr.into(),
+            }),
+            LdapOp::UnbindRequest => Tag::Null(Null {
+                class: TagClass::Application,
+                id: 2,
+                inner: (),
+            }),
+            LdapOp::ExtendedRequest(ler) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 23,
+                inner: ler.into(),
+            }),
+            LdapOp::ExtendedResponse(ler) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 24,
+                inner: ler.into(),
+            }),
+        }
     }
 }
 
@@ -280,6 +412,300 @@ impl From<LdapSimpleBind> for Vec<Tag> {
                 inner: Vec::from(value.pw),
             }),
         ]
+    }
+}
+
+impl LdapResult {
+    fn into_tag_iter(self) -> impl Iterator<Item = Option<Tag>> {
+        let LdapResult {
+            code,
+            matcheddn,
+            message,
+            referral,
+        } = self;
+
+        once_with(|| {
+            Some(Tag::Enumerated(Enumerated {
+                inner: code as i64,
+                ..Default::default()
+            }))
+        })
+        .chain(once_with(|| {
+            Some(Tag::OctetString(OctetString {
+                inner: Vec::from(matcheddn),
+                ..Default::default()
+            }))
+        }))
+        .chain(once_with(|| {
+            Some(Tag::OctetString(OctetString {
+                inner: Vec::from(message),
+                ..Default::default()
+            }))
+        }))
+        .chain(once_with(move || {
+            if referral.len() > 0 {
+                // Remember to mark this as id 3, class::Context  (I think)
+                unimplemented!();
+            } else {
+                None
+            }
+        }))
+    }
+}
+
+impl LdapResult {
+    fn try_from_tag(mut value: Vec<StructureTag>) -> Result<(Self, Vec<StructureTag>), ()> {
+        // First, reverse all the elements so we are in the correct order.
+        value.reverse();
+
+        let code = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Enumerated as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(ber_integer_to_i64)
+            .ok_or(())
+            .and_then(|i| LdapResultCode::try_from(i))?;
+
+        let matcheddn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let message = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let (_referrals, other): (Vec<_>, Vec<_>) = value.into_iter().partition(|v| v.id == 3);
+
+        // assert referrals only is one
+        let referral = Vec::new();
+
+        Ok((
+            LdapResult {
+                code,
+                matcheddn,
+                message,
+                referral,
+            },
+            other,
+        ))
+    }
+}
+
+impl LdapBindResponse {
+    pub fn new_success(msg: &str) -> Self {
+        LdapBindResponse {
+            res: LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "".to_string(),
+                message: msg.to_string(),
+                referral: Vec::new(),
+            },
+            saslcreds: None,
+        }
+    }
+
+    pub fn new_invalidcredentials(dn: &str, msg: &str) -> Self {
+        LdapBindResponse {
+            res: LdapResult {
+                code: LdapResultCode::InvalidCredentials,
+                matcheddn: dn.to_string(),
+                message: msg.to_string(),
+                referral: Vec::new(),
+            },
+            saslcreds: None,
+        }
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapBindResponse {
+    type Error = ();
+
+    fn try_from(value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        // This MUST be the first thing we do!
+        let (res, _remtag) = LdapResult::try_from_tag(value)?;
+
+        // Now with the remaining tags, populate anything else we need
+        Ok(LdapBindResponse {
+            res,
+            saslcreds: None,
+        })
+    }
+}
+
+impl From<LdapBindResponse> for Vec<Tag> {
+    fn from(value: LdapBindResponse) -> Vec<Tag> {
+        // get all the values from the LdapResult
+        let LdapBindResponse { res, saslcreds } = value;
+        res.into_tag_iter()
+            .chain(once_with(|| {
+                saslcreds.map(|sc| {
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(sc),
+                        ..Default::default()
+                    })
+                })
+            }))
+            .filter_map(|s| s)
+            .collect()
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapExtendedRequest {
+    type Error = ();
+
+    fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        // Put the values in order.
+        value.reverse();
+        // Read the values in
+        let name = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Context))
+            .and_then(|t| t.match_id(0))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let value = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Context))
+            .and_then(|t| t.match_id(1))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok());
+
+        Ok(LdapExtendedRequest { name, value })
+    }
+}
+
+impl From<LdapExtendedRequest> for Vec<Tag> {
+    fn from(value: LdapExtendedRequest) -> Vec<Tag> {
+        let LdapExtendedRequest { name, value } = value;
+
+        once_with(|| {
+            Tag::OctetString(OctetString {
+                id: 0,
+                class: TagClass::Context,
+                inner: Vec::from(name),
+            })
+        })
+        .chain(
+            once_with(|| {
+                value.map(|v| {
+                    Tag::OctetString(OctetString {
+                        id: 1,
+                        class: TagClass::Context,
+                        inner: Vec::from(v),
+                    })
+                })
+            })
+            .filter_map(|s| s),
+        )
+        .collect()
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapExtendedResponse {
+    type Error = ();
+
+    fn try_from(value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        // This MUST be the first thing we do!
+        let (res, remtag) = LdapResult::try_from_tag(value)?;
+        // Now from the remaining tags, get the items.
+        let mut name = None;
+        let mut value = None;
+        remtag.into_iter().for_each(|v| {
+            match (v.id, v.class) {
+                (10, TagClass::Context) => {
+                    name = v
+                        .expect_primitive()
+                        .and_then(|bv| String::from_utf8(bv).ok())
+                }
+                (11, TagClass::Context) => {
+                    value = v
+                        .expect_primitive()
+                        .and_then(|bv| String::from_utf8(bv).ok())
+                }
+                _ => {
+                    // Do nothing
+                }
+            }
+        });
+
+        Ok(LdapExtendedResponse { res, name, value })
+    }
+}
+
+impl From<LdapExtendedResponse> for Vec<Tag> {
+    fn from(value: LdapExtendedResponse) -> Vec<Tag> {
+        let LdapExtendedResponse { res, name, value } = value;
+        res.into_tag_iter()
+            .chain(once_with(|| {
+                name.map(|v| {
+                    Tag::OctetString(OctetString {
+                        id: 10,
+                        class: TagClass::Context,
+                        inner: Vec::from(v),
+                    })
+                })
+            }))
+            .chain(once_with(|| {
+                value.map(|v| {
+                    Tag::OctetString(OctetString {
+                        id: 11,
+                        class: TagClass::Context,
+                        inner: Vec::from(v),
+                    })
+                })
+            }))
+            .filter_map(|s| s)
+            .collect()
+    }
+}
+
+impl LdapExtendedResponse {
+    pub fn new_success(name: Option<&str>, value: Option<&str>) -> Self {
+        LdapExtendedResponse {
+            res: LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "".to_string(),
+                message: "".to_string(),
+                referral: Vec::new(),
+            },
+            name: name.map(|v| v.to_string()),
+            value: value.map(|v| v.to_string()),
+        }
+    }
+
+    pub fn new_operationserror(msg: &str) -> Self {
+        LdapExtendedResponse {
+            res: LdapResult {
+                code: LdapResultCode::OperationsError,
+                matcheddn: "".to_string(),
+                message: msg.to_string(),
+                referral: Vec::new(),
+            },
+            name: None,
+            value: None,
+        }
+    }
+}
+
+impl TryFrom<i64> for LdapResultCode {
+    type Error = ();
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(LdapResultCode::Success),
+            _ => Err(()),
+        }
     }
 }
 
