@@ -29,7 +29,7 @@ There is an example, hardcoded server using Actix in `examples`
 | extended | rfc4511 | ✅ (may need changes) |
 | whoami | rfc4532 | ✅ |
 
-## Things we might add
+## Things we probably won't add
 
 I have no interest in adding StartTLS or SASL support.
 
