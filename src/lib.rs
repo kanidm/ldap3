@@ -56,10 +56,8 @@ impl Encoder for LdapServerCodec {
 mod tests {
     use crate::proto::*;
     use crate::LdapServerCodec;
-    use bytes::{Buf, BytesMut};
+    use bytes::BytesMut;
     use tokio_util::codec::{Decoder, Encoder};
-    // use std::convert::TryInto;
-    use lber::structures::Tag;
 
     macro_rules! do_test {
         ($req:expr) => {{
@@ -103,6 +101,69 @@ mod tests {
                     referral: vec![],
                 },
                 saslcreds: None
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_searchrequest() {
+        do_test!(LdapMsg {
+            msgid: 2_147_483_646,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Base,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Or(vec![
+                    LdapFilter::Present("cn".to_string()),
+                    LdapFilter::Equality("cn".to_string(), "name".to_string()),
+                    LdapFilter::Not(Box::new(LdapFilter::And(vec![LdapFilter::Present(
+                        "cursed".to_string()
+                    ),]))),
+                ]),
+                attrs: vec!["cn".to_string(), "objectClass".to_string(),],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_searchresultentry() {
+        do_test!(LdapMsg {
+            msgid: 2_147_483_646,
+            op: LdapOp::SearchResultEntry(LdapSearchResultEntry {
+                dn: "cn=demo,dc=example,dc=com".to_string(),
+                attributes: vec![
+                    LdapPartialAttribute {
+                        atype: "cn".to_string(),
+                        vals: vec!["demo".to_string(),]
+                    },
+                    LdapPartialAttribute {
+                        atype: "dn".to_string(),
+                        vals: vec!["cn=demo,dc=example,dc=com".to_string(),]
+                    },
+                    LdapPartialAttribute {
+                        atype: "objectClass".to_string(),
+                        vals: vec!["cursed".to_string(),]
+                    },
+                ]
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_searchresultdone() {
+        do_test!(LdapMsg {
+            msgid: 28799790,
+            op: LdapOp::SearchResultDone(LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "".to_string(),
+                message: "Whargarble".to_string(),
+                referral: vec![],
             }),
             ctrl: vec![],
         });
