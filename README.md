@@ -29,6 +29,17 @@ There is an example, hardcoded server using Actix in `examples`
 | extended | rfc4511 | ✅ (may need changes) |
 | whoami | rfc4532 | ✅ |
 
+## Things we might add
+
+I have no interest in adding StartTLS or SASL support.
+
+StartTLS has a number of security issues compared to LDAPS, and should *not* be used, or developed
+as it is not only more complex, but also worse than LDAPS. Use LDAPS.
+
+SASL is extremely complicated, and there are very few clients that require it over simple bind. It's
+not really worth the time to add it - if someone contributes it, great! But I won't be actively
+pursuing it.
+
 ## Notes:
 
 LDAP - the trashfire we have, not the trashfire we want.
