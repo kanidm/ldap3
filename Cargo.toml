@@ -5,7 +5,7 @@ authors = ["William Brown <william@blackhats.net.au>"]
 edition = "2018"
 
 description = "LDAP Server Codec for Tokio"
-repository = "https://github.com/Firstyear/ldap3_server"
+repository = "https://github.com/kanidm/ldap3_server"
 readme = "README.md"
 keywords = ["ldap", "authentication"]
 categories = ["authentication"]
