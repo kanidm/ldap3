@@ -1,4 +1,5 @@
-mod proto;
+pub mod proto;
+pub mod simple;
 
 use bytes::{Buf, BytesMut};
 use lber::parse::Parser;
@@ -9,11 +10,12 @@ use std::convert::TryFrom;
 use std::io;
 use tokio_util::codec::{Decoder, Encoder};
 
-pub use crate::proto::*;
+use crate::proto::*;
+pub use crate::simple::*;
 
-pub struct LdapServerCodec;
+pub struct LdapCodec;
 
-impl Decoder for LdapServerCodec {
+impl Decoder for LdapCodec {
     type Item = LdapMsg;
     type Error = io::Error;
 
@@ -41,7 +43,7 @@ impl Decoder for LdapServerCodec {
     }
 }
 
-impl Encoder for LdapServerCodec {
+impl Encoder for LdapCodec {
     type Item = LdapMsg;
     type Error = io::Error;
 
@@ -55,14 +57,14 @@ impl Encoder for LdapServerCodec {
 #[cfg(test)]
 mod tests {
     use crate::proto::*;
-    use crate::LdapServerCodec;
+    use crate::LdapCodec;
     use bytes::BytesMut;
     use tokio_util::codec::{Decoder, Encoder};
 
     macro_rules! do_test {
         ($req:expr) => {{
             let mut buf = BytesMut::new();
-            let mut server_codec = LdapServerCodec;
+            let mut server_codec = LdapCodec;
             assert!(server_codec.encode($req.clone(), &mut buf).is_ok());
             let res = server_codec.decode(&mut buf).expect("failed to decode");
             let msg = res.expect("None found?");
@@ -75,7 +77,10 @@ mod tests {
     fn test_ldapserver_codec_simplebind() {
         do_test!(LdapMsg {
             msgid: 1,
-            op: LdapOp::SimpleBind(LdapSimpleBind::new_anonymous()),
+            op: LdapOp::BindRequest(LdapBindRequest {
+                dn: "".to_string(),
+                cred: LdapBindCred::Simple("".to_string()),
+            }),
             ctrl: vec![],
         });
     }

@@ -1,6 +1,7 @@
 use actix::prelude::*;
 use futures_util::stream::StreamExt;
-use ldap3_server::*;
+use ldap3_server::proto::*;
+use ldap3_server::LdapCodec;
 use std::io;
 use std::net;
 use std::str::FromStr;
@@ -16,7 +17,7 @@ pub struct LdapServer;
 
 pub struct LdapSession {
     dn: String,
-    framed: actix::io::FramedWrite<WriteHalf<TcpStream>, LdapServerCodec>,
+    framed: actix::io::FramedWrite<WriteHalf<TcpStream>, LdapCodec>,
 }
 
 impl Actor for LdapSession {
@@ -39,7 +40,7 @@ impl StreamHandler<Result<LdapMsg, io::Error>> for LdapSession {
         };
 
         let resp = match msg.op {
-            LdapOp::SimpleBind(lsb) => self.do_bind(msg.msgid, &lsb),
+            LdapOp::BindRequest(lbr) => self.do_bind(msg.msgid, &lbr),
             LdapOp::UnbindRequest => {
                 // dc
                 ctx.stop();
@@ -73,22 +74,26 @@ impl StreamHandler<Result<LdapMsg, io::Error>> for LdapSession {
 }
 
 impl LdapSession {
-    pub fn new(framed: actix::io::FramedWrite<WriteHalf<TcpStream>, LdapServerCodec>) -> Self {
+    pub fn new(framed: actix::io::FramedWrite<WriteHalf<TcpStream>, LdapCodec>) -> Self {
         LdapSession {
             dn: "Anonymous".to_string(),
             framed,
         }
     }
 
-    pub fn do_bind(&mut self, msgid: i32, lsb: &LdapSimpleBind) -> Vec<LdapMsg> {
-        let res = if lsb.dn == "cn=Directory Manager" && lsb.pw == "password" {
-            self.dn = lsb.dn.to_string();
-            LdapBindResponse::new_success("")
-        } else if lsb.dn == "" && lsb.pw == "" {
-            self.dn = "Anonymous".to_string();
-            LdapBindResponse::new_success("")
-        } else {
-            LdapBindResponse::new_invalidcredentials(lsb.dn.as_str(), "Failed")
+    pub fn do_bind(&mut self, msgid: i32, lbr: &LdapBindRequest) -> Vec<LdapMsg> {
+        let res = match &lbr.cred {
+            LdapBindCred::Simple(pw) => {
+                if lbr.dn == "cn=Directory Manager" && pw == "password" {
+                    self.dn = lbr.dn.to_string();
+                    LdapBindResponse::new_success("")
+                } else if lbr.dn == "" && pw == "" {
+                    self.dn = "Anonymous".to_string();
+                    LdapBindResponse::new_success("")
+                } else {
+                    LdapBindResponse::new_invalidcredentials(lbr.dn.as_str(), "Failed")
+                }
+            }
         };
         vec![LdapMsg::new(msgid, LdapOp::BindResponse(res))]
     }
@@ -170,8 +175,8 @@ impl Handler<TcpConnect> for LdapServer {
     fn handle(&mut self, msg: TcpConnect, _: &mut Context<Self>) {
         LdapSession::create(move |ctx| {
             let (r, w) = tokio::io::split(msg.0);
-            LdapSession::add_stream(FramedRead::new(r, LdapServerCodec), ctx);
-            LdapSession::new(actix::io::FramedWrite::new(w, LdapServerCodec, ctx))
+            LdapSession::add_stream(FramedRead::new(r, LdapCodec), ctx);
+            LdapSession::new(actix::io::FramedWrite::new(w, LdapCodec, ctx))
         });
     }
 }

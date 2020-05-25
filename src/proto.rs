@@ -77,7 +77,7 @@ pub struct LdapResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LdapOp {
-    SimpleBind(LdapSimpleBind),
+    BindRequest(LdapBindRequest),
     BindResponse(LdapBindResponse),
     UnbindRequest,
     // https://tools.ietf.org/html/rfc4511#section-4.5
@@ -90,9 +90,14 @@ pub enum LdapOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LdapSimpleBind {
+pub enum LdapBindCred {
+    Simple(String), // Sasl
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapBindRequest {
     pub dn: String,
-    pub pw: String,
+    pub cred: LdapBindCred,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,45 +178,15 @@ pub struct LdapExtendedResponse {
     pub value: Option<String>,
 }
 
-impl LdapOp {
-    pub fn is_simplebind(&self) -> bool {
-        match self {
-            LdapOp::SimpleBind(_) => true,
-            _ => false,
+impl From<LdapBindCred> for Tag {
+    fn from(value: LdapBindCred) -> Tag {
+        match value {
+            LdapBindCred::Simple(pw) => Tag::OctetString(OctetString {
+                id: 0,
+                class: TagClass::Context,
+                inner: Vec::from(pw),
+            }),
         }
-    }
-}
-
-impl LdapSimpleBind {
-    pub fn new_anonymous() -> Self {
-        LdapSimpleBind {
-            dn: "".to_string(),
-            pw: "".to_string(),
-        }
-    }
-}
-
-impl From<LdapSimpleBind> for Tag {
-    fn from(value: LdapSimpleBind) -> Tag {
-        Tag::Sequence(Sequence {
-            id: 0,
-            class: TagClass::Application,
-            inner: vec![
-                Tag::Integer(Integer {
-                    inner: 3,
-                    ..Default::default()
-                }),
-                Tag::OctetString(OctetString {
-                    inner: Vec::from(value.dn),
-                    ..Default::default()
-                }),
-                Tag::OctetString(OctetString {
-                    id: 0,
-                    class: TagClass::Context,
-                    inner: Vec::from(value.pw),
-                }),
-            ],
-        })
     }
 }
 
@@ -349,7 +324,7 @@ impl TryFrom<StructureTag> for LdapOp {
         match (id, payload) {
             // https://tools.ietf.org/html/rfc4511#section-4.2
             // BindRequest
-            (0, PL::C(inner)) => LdapSimpleBind::try_from(inner).map(|v| LdapOp::SimpleBind(v)),
+            (0, PL::C(inner)) => LdapBindRequest::try_from(inner).map(|v| LdapOp::BindRequest(v)),
             // BindResponse
             (1, PL::C(inner)) => LdapBindResponse::try_from(inner).map(|v| LdapOp::BindResponse(v)),
             // UnbindRequest
@@ -380,10 +355,10 @@ impl TryFrom<StructureTag> for LdapOp {
 impl From<LdapOp> for Tag {
     fn from(value: LdapOp) -> Tag {
         match value {
-            LdapOp::SimpleBind(lsb) => Tag::Sequence(Sequence {
+            LdapOp::BindRequest(lbr) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
                 id: 0,
-                inner: lsb.into(),
+                inner: lbr.into(),
             }),
             LdapOp::BindResponse(lbr) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
@@ -424,27 +399,36 @@ impl From<LdapOp> for Tag {
     }
 }
 
-impl TryFrom<Vec<StructureTag>> for LdapSimpleBind {
+impl TryFrom<StructureTag> for LdapBindCred {
+    type Error = ();
+
+    fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
+        if value.class != TagClass::Context {
+            return Err(());
+        }
+
+        match value.id {
+            0 => value
+                .expect_primitive()
+                .and_then(|bv| String::from_utf8(bv).ok())
+                .map(|pw| LdapBindCred::Simple(pw))
+                .ok_or(()),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapBindRequest {
     type Error = ();
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         // https://tools.ietf.org/html/rfc4511#section-4.2
         // BindRequest
-
-        // We need 3 elements, the version, the dn, and a choice of the
-        // credential (we only support simple)
-        let (v, dn, choice) = if value.len() == 3 {
-            // Remember it's a vec, so we pop in reverse order.
-            let choice = value.pop();
-            let dn = value.pop();
-            let v = value.pop();
-            (v, dn, choice)
-        } else {
-            return Err(());
-        };
+        value.reverse();
 
         // Check the version is 3
-        let v = v
+        let v = value
+            .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::Integer as u64))
             .and_then(|t| t.expect_primitive())
@@ -455,28 +439,26 @@ impl TryFrom<Vec<StructureTag>> for LdapSimpleBind {
         };
 
         // Get the DN
-        let dn = dn
+        let dn = value
+            .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
             .ok_or(())?;
 
-        // Andddd get the password.
-        let pw = choice
-            .and_then(|t| t.match_class(TagClass::Context))
-            // Only match pw
-            .and_then(|t| t.match_id(0))
-            .and_then(|t| t.expect_primitive())
-            .and_then(|bv| String::from_utf8(bv).ok())
+        // Andddd get the credential
+        let cred = value
+            .pop()
+            .and_then(|v| LdapBindCred::try_from(v).ok())
             .ok_or(())?;
 
-        Ok(LdapSimpleBind { dn, pw })
+        Ok(LdapBindRequest { dn, cred })
     }
 }
 
-impl From<LdapSimpleBind> for Vec<Tag> {
-    fn from(value: LdapSimpleBind) -> Vec<Tag> {
+impl From<LdapBindRequest> for Vec<Tag> {
+    fn from(value: LdapBindRequest) -> Vec<Tag> {
         vec![
             Tag::Integer(Integer {
                 inner: 3,
@@ -486,11 +468,7 @@ impl From<LdapSimpleBind> for Vec<Tag> {
                 inner: Vec::from(value.dn),
                 ..Default::default()
             }),
-            Tag::OctetString(OctetString {
-                id: 0,
-                class: TagClass::Context,
-                inner: Vec::from(value.pw),
-            }),
+            value.cred.into(),
         ]
     }
 }
