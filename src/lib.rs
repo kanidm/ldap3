@@ -10,7 +10,7 @@ use std::convert::TryFrom;
 use std::io;
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::proto::*;
+use crate::proto::LdapMsg;
 pub use crate::simple::*;
 
 pub struct LdapCodec;
@@ -213,7 +213,7 @@ mod tests {
                     referral: vec![],
                 },
                 name: None,
-                value: Some("hello".to_string()),
+                value: Some(Vec::from("hello")),
             }),
             ctrl: vec![],
         });

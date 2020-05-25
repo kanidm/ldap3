@@ -1,7 +1,8 @@
 use actix::prelude::*;
 use futures_util::stream::StreamExt;
-use ldap3_server::proto::*;
+use ldap3_server::simple::*;
 use ldap3_server::LdapCodec;
+use std::convert::TryFrom;
 use std::io;
 use std::net;
 use std::str::FromStr;
@@ -33,41 +34,36 @@ impl StreamHandler<Result<LdapMsg, io::Error>> for LdapSession {
         let msg = match msg {
             Ok(m) => m,
             Err(_) => {
-                // Dc
+                self.framed.write(DisconnectionNotice::gen(
+                    LdapResultCode::Other,
+                    "Internal Server Error",
+                ));
                 ctx.stop();
                 return;
             }
         };
 
-        let resp = match msg.op {
-            LdapOp::BindRequest(lbr) => self.do_bind(msg.msgid, &lbr),
-            LdapOp::UnbindRequest => {
-                // dc
+        let server_op = match ServerOps::try_from(msg) {
+            Ok(v) => v,
+            Err(_) => {
+                self.framed.write(DisconnectionNotice::gen(
+                    LdapResultCode::ProtocolError,
+                    "Invalid Request",
+                ));
                 ctx.stop();
                 return;
             }
-            LdapOp::SearchRequest(lsr) => self.do_search(msg.msgid, &lsr),
-            LdapOp::ExtendedRequest(lep) => {
-                println!("{:?}", lep);
-                match lep.name.as_str() {
-                    "1.3.6.1.4.1.4203.1.11.3" => self.do_whoami(msg.msgid),
-                    _ => vec![LdapMsg::new(
-                        msg.msgid,
-                        LdapOp::ExtendedResponse(LdapExtendedResponse::new_operationserror(
-                            "Unknown ExtendedRequest OID",
-                        )),
-                    )],
-                }
-            }
-            // Invalid states
-            LdapOp::BindResponse(_)
-            | LdapOp::ExtendedResponse(_)
-            | LdapOp::SearchResultEntry(_)
-            | LdapOp::SearchResultDone(_) => {
-                // dc
+        };
+
+        let resp = match server_op {
+            ServerOps::SimpleBind(sbr) => vec![self.do_bind(&sbr)],
+            ServerOps::Search(sr) => self.do_search(&sr),
+            ServerOps::Unbind(_) => {
+                // No need to notify on unbind (per rfc4511)
                 ctx.stop();
                 return;
             }
+            ServerOps::Whoami(wr) => vec![self.do_whoami(&wr)],
         };
         resp.into_iter().for_each(|msg| self.framed.write(msg))
     }
@@ -81,88 +77,52 @@ impl LdapSession {
         }
     }
 
-    pub fn do_bind(&mut self, msgid: i32, lbr: &LdapBindRequest) -> Vec<LdapMsg> {
-        let res = match &lbr.cred {
-            LdapBindCred::Simple(pw) => {
-                if lbr.dn == "cn=Directory Manager" && pw == "password" {
-                    self.dn = lbr.dn.to_string();
-                    LdapBindResponse::new_success("")
-                } else if lbr.dn == "" && pw == "" {
-                    self.dn = "Anonymous".to_string();
-                    LdapBindResponse::new_success("")
-                } else {
-                    LdapBindResponse::new_invalidcredentials(lbr.dn.as_str(), "Failed")
-                }
-            }
-        };
-        vec![LdapMsg::new(msgid, LdapOp::BindResponse(res))]
+    pub fn do_bind(&mut self, sbr: &SimpleBindRequest) -> LdapMsg {
+        if sbr.dn == "cn=Directory Manager" && sbr.pw == "password" {
+            self.dn = sbr.dn.to_string();
+            sbr.gen_success()
+        } else if sbr.dn == "" && sbr.pw == "" {
+            self.dn = "Anonymous".to_string();
+            sbr.gen_success()
+        } else {
+            sbr.gen_invalid_cred()
+        }
     }
 
-    pub fn do_search(&mut self, msgid: i32, lsr: &LdapSearchRequest) -> Vec<LdapMsg> {
+    pub fn do_search(&mut self, lsr: &SearchRequest) -> Vec<LdapMsg> {
         vec![
-            LdapMsg {
-                msgid,
-                op: LdapOp::SearchResultEntry(LdapSearchResultEntry {
-                    dn: "cn=hello,dc=example,dc=com".to_string(),
-                    attributes: vec![
-                        LdapPartialAttribute {
-                            atype: "cn".to_string(),
-                            vals: vec!["hello".to_string()],
-                        },
-                        LdapPartialAttribute {
-                            atype: "dn".to_string(),
-                            vals: vec!["cn=hello,dc=example,dc=com".to_string()],
-                        },
-                        LdapPartialAttribute {
-                            atype: "objectClass".to_string(),
-                            vals: vec!["cursed".to_string()],
-                        },
-                    ],
-                }),
-                ctrl: vec![],
-            },
-            LdapMsg {
-                msgid,
-                op: LdapOp::SearchResultEntry(LdapSearchResultEntry {
-                    dn: "cn=world,dc=example,dc=com".to_string(),
-                    attributes: vec![
-                        LdapPartialAttribute {
-                            atype: "cn".to_string(),
-                            vals: vec!["world".to_string()],
-                        },
-                        LdapPartialAttribute {
-                            atype: "dn".to_string(),
-                            vals: vec!["cn=world,dc=example,dc=com".to_string()],
-                        },
-                        LdapPartialAttribute {
-                            atype: "objectClass".to_string(),
-                            vals: vec!["cursed".to_string()],
-                        },
-                    ],
-                }),
-                ctrl: vec![],
-            },
-            LdapMsg {
-                msgid,
-                op: LdapOp::SearchResultDone(LdapResult {
-                    code: LdapResultCode::Success,
-                    matcheddn: "".to_string(),
-                    message: "LDAP in Rust? It's more likely than you think!".to_string(),
-                    referral: vec![],
-                }),
-                ctrl: vec![],
-            },
+            lsr.gen_result_entry(LdapSearchResultEntry {
+                dn: "cn=hello,dc=example,dc=com".to_string(),
+                attributes: vec![
+                    LdapPartialAttribute {
+                        atype: "objectClass".to_string(),
+                        vals: vec!["cursed".to_string()],
+                    },
+                    LdapPartialAttribute {
+                        atype: "cn".to_string(),
+                        vals: vec!["hello".to_string()],
+                    },
+                ],
+            }),
+            lsr.gen_result_entry(LdapSearchResultEntry {
+                dn: "cn=world,dc=example,dc=com".to_string(),
+                attributes: vec![
+                    LdapPartialAttribute {
+                        atype: "objectClass".to_string(),
+                        vals: vec!["cursed".to_string()],
+                    },
+                    LdapPartialAttribute {
+                        atype: "cn".to_string(),
+                        vals: vec!["world".to_string()],
+                    },
+                ],
+            }),
+            lsr.gen_success(),
         ]
     }
 
-    pub fn do_whoami(&mut self, msgid: i32) -> Vec<LdapMsg> {
-        vec![LdapMsg::new(
-            msgid,
-            LdapOp::ExtendedResponse(LdapExtendedResponse::new_success(
-                None,
-                Some(format!("dn: {}", self.dn).as_str()),
-            )),
-        )]
+    pub fn do_whoami(&mut self, wr: &WhoamiRequest) -> LdapMsg {
+        wr.gen_success(format!("dn: {}", self.dn).as_str())
     }
 }
 

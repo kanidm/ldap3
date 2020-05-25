@@ -166,7 +166,7 @@ pub struct LdapExtendedRequest {
     // 0
     pub name: String,
     // 1
-    pub value: Option<String>,
+    pub value: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -175,7 +175,7 @@ pub struct LdapExtendedResponse {
     // 10
     pub name: Option<String>,
     // 11
-    pub value: Option<String>,
+    pub value: Option<Vec<u8>>,
 }
 
 impl From<LdapBindCred> for Tag {
@@ -1009,8 +1009,7 @@ impl TryFrom<Vec<StructureTag>> for LdapExtendedRequest {
             .pop()
             .and_then(|t| t.match_class(TagClass::Context))
             .and_then(|t| t.match_id(1))
-            .and_then(|t| t.expect_primitive())
-            .and_then(|bv| String::from_utf8(bv).ok());
+            .and_then(|t| t.expect_primitive());
 
         Ok(LdapExtendedRequest { name, value })
     }
@@ -1033,7 +1032,7 @@ impl From<LdapExtendedRequest> for Vec<Tag> {
                     Tag::OctetString(OctetString {
                         id: 1,
                         class: TagClass::Context,
-                        inner: Vec::from(v),
+                        inner: v,
                     })
                 })
             })
@@ -1059,11 +1058,7 @@ impl TryFrom<Vec<StructureTag>> for LdapExtendedResponse {
                         .expect_primitive()
                         .and_then(|bv| String::from_utf8(bv).ok())
                 }
-                (11, TagClass::Context) => {
-                    value = v
-                        .expect_primitive()
-                        .and_then(|bv| String::from_utf8(bv).ok())
-                }
+                (11, TagClass::Context) => value = v.expect_primitive(),
                 _ => {
                     // Do nothing
                 }
@@ -1092,7 +1087,7 @@ impl From<LdapExtendedResponse> for Vec<Tag> {
                     Tag::OctetString(OctetString {
                         id: 11,
                         class: TagClass::Context,
-                        inner: Vec::from(v),
+                        inner: v,
                     })
                 })
             }))
@@ -1111,7 +1106,7 @@ impl LdapExtendedResponse {
                 referral: Vec::new(),
             },
             name: name.map(|v| v.to_string()),
-            value: value.map(|v| v.to_string()),
+            value: value.map(|v| Vec::from(v)),
         }
     }
 
