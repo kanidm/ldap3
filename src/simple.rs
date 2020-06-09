@@ -128,6 +128,19 @@ impl SearchRequest {
             ctrl: vec![],
         }
     }
+
+    pub fn gen_error(&self, rc: LdapResultCode, msg: String) -> LdapMsg {
+        LdapMsg {
+            msgid: self.msgid,
+            op: LdapOp::SearchResultDone(LdapResult {
+                code: rc,
+                matcheddn: "".to_string(),
+                message: msg,
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        }
+    }
 }
 
 impl SimpleBindRequest {
@@ -171,6 +184,22 @@ impl SimpleBindRequest {
                     code: LdapResultCode::OperationsError,
                     matcheddn: "".to_string(),
                     message: msg.to_string(),
+                    referral: vec![],
+                },
+                saslcreds: None,
+            }),
+            ctrl: vec![],
+        }
+    }
+
+    pub fn gen_error(&self, rc: LdapResultCode, msg: String) -> LdapMsg {
+        LdapMsg {
+            msgid: self.msgid,
+            op: LdapOp::BindResponse(LdapBindResponse {
+                res: LdapResult {
+                    code: rc,
+                    matcheddn: "".to_string(),
+                    message: msg,
                     referral: vec![],
                 },
                 saslcreds: None,
