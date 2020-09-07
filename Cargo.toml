@@ -15,17 +15,16 @@ license = "MPL-2.0"
 
 [dependencies]
 lber = "0.2"
-tokio-util = { version = "0.2", features = ["codec"] }
+tokio-util = { version = "0.3", features = ["codec"] }
 bytes = "0.5"
 
 [dev-dependencies]
-env_logger = "0.6"
+env_logger = "0.7"
 log = "0.4"
 
 futures-util = "0.3"
 tokio = { version = "0.2", features=["full"] }
 futures = "0.3"
-# tokio-util = { version = "0.3", features = ["codec"] }
 
 # actix-rt = "1.0"
 # actix_derive = "0.5"

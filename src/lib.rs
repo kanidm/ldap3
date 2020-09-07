@@ -43,8 +43,8 @@ impl Decoder for LdapCodec {
     }
 }
 
-impl Encoder for LdapCodec {
-    type Item = LdapMsg;
+impl Encoder<LdapMsg> for LdapCodec {
+    // type Item = LdapMsg;
     type Error = io::Error;
 
     fn encode(&mut self, msg: LdapMsg, buf: &mut BytesMut) -> io::Result<()> {
