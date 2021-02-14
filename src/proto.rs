@@ -84,6 +84,14 @@ pub enum LdapOp {
     SearchRequest(LdapSearchRequest),
     SearchResultEntry(LdapSearchResultEntry),
     SearchResultDone(LdapResult),
+    // https://tools.ietf.org/html/rfc4511#section-4.7
+    AddRequest(LdapAddRequest),
+    AddResponse(LdapResult),
+    // https://tools.ietf.org/html/rfc4511#section-4.8
+    DelRequest(String),
+    DelResponse(LdapResult),
+    // https://tools.ietf.org/html/rfc4511#section-4.11
+    AbandonRequest(i32),
     // https://tools.ietf.org/html/rfc4511#section-4.12
     ExtendedRequest(LdapExtendedRequest),
     ExtendedResponse(LdapExtendedResponse),
@@ -149,16 +157,27 @@ pub struct LdapSearchRequest {
     pub attrs: Vec<String>,
 }
 
+// https://tools.ietf.org/html/rfc4511#section-4.1.7
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapPartialAttribute {
     pub atype: String,
     pub vals: Vec<String>,
 }
 
+// A PartialAttribute allows zero values, while
+// Attribute requires at least one value.
+type LdapAttribute = LdapPartialAttribute;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapSearchResultEntry {
     pub dn: String,
     pub attributes: Vec<LdapPartialAttribute>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapAddRequest {
+    pub dn: String,
+    pub attributes: Vec<LdapAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -338,6 +357,20 @@ impl TryFrom<StructureTag> for LdapOp {
             (5, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::SearchResultDone(lr))
             }
+            (8, PL::C(inner)) => LdapAddRequest::try_from(inner).map(|v| LdapOp::AddRequest(v)),
+            (9, PL::C(inner)) => {
+                LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::AddResponse(lr))
+            }
+            (10, PL::P(inner)) => String::from_utf8(inner)
+                .ok()
+                .ok_or(())
+                .map(|s| LdapOp::DelRequest(s)),
+            (11, PL::C(inner)) => {
+                LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::DelResponse(lr))
+            }
+            (16, PL::P(inner)) => ber_integer_to_i64(inner)
+                .ok_or(())
+                .map(|s| LdapOp::AbandonRequest(s as i32)),
             (23, PL::C(inner)) => {
                 LdapExtendedRequest::try_from(inner).map(|v| LdapOp::ExtendedRequest(v))
             }
@@ -384,6 +417,31 @@ impl From<LdapOp> for Tag {
                 class: TagClass::Application,
                 id: 5,
                 inner: lr.into(),
+            }),
+            LdapOp::AddRequest(lar) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 8,
+                inner: lar.into(),
+            }),
+            LdapOp::AddResponse(lr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 9,
+                inner: lr.into(),
+            }),
+            LdapOp::DelRequest(s) => Tag::OctetString(OctetString {
+                class: TagClass::Application,
+                id: 10,
+                inner: Vec::from(s),
+            }),
+            LdapOp::DelResponse(lr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 11,
+                inner: lr.into(),
+            }),
+            LdapOp::AbandonRequest(id) => Tag::Integer(Integer {
+                class: TagClass::Application,
+                id: 16,
+                inner: id as i64,
             }),
             LdapOp::ExtendedRequest(ler) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
@@ -1148,6 +1206,54 @@ impl TryFrom<i64> for LdapDerefAliases {
             3 => Ok(LdapDerefAliases::Always),
             _ => Err(()),
         }
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapAddRequest {
+    type Error = ();
+
+    fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        value.reverse();
+
+        let dn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let attributes = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Sequence as u64))
+            .and_then(|t| t.expect_constructed())
+            .and_then(|bset| {
+                let r: Result<Vec<_>, _> = bset
+                    .into_iter()
+                    .map(|bv| LdapAttribute::try_from(bv))
+                    .collect();
+                r.ok()
+            })
+            .ok_or(())?;
+
+        Ok(LdapAddRequest { dn, attributes })
+    }
+}
+
+impl From<LdapAddRequest> for Vec<Tag> {
+    fn from(value: LdapAddRequest) -> Vec<Tag> {
+        let LdapAddRequest { dn, attributes } = value;
+        vec![
+            Tag::OctetString(OctetString {
+                inner: Vec::from(dn),
+                ..Default::default()
+            }),
+            Tag::Sequence(Sequence {
+                inner: attributes.into_iter().map(|v| v.into()).collect(),
+                ..Default::default()
+            }),
+        ]
     }
 }
 
