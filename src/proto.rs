@@ -131,13 +131,20 @@ pub enum LdapDerefAliases {
     Always = 3,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LdapSubstringFilter {
+    pub initial: Option<String>,
+    pub any: Vec<String>,
+    pub final_: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LdapFilter {
     And(Vec<LdapFilter>),
     Or(Vec<LdapFilter>),
     Not(Box<LdapFilter>),
     Equality(String, String),
-    //SubString
+    Substring(String, LdapSubstringFilter),
     //GE
     //LE
     Present(String),
@@ -733,6 +740,57 @@ impl TryFrom<StructureTag> for LdapFilter {
 
                 Ok(LdapFilter::Equality(a, v))
             }
+            4 => {
+                let mut inner = value.expect_constructed().ok_or(())?;
+                inner.reverse();
+
+                let ty = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| String::from_utf8(bv).ok())
+                    .ok_or(())?;
+
+                let f = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Sequence as u64))
+                    .and_then(|t| t.expect_constructed())
+                    .and_then(|bv| {
+                        let mut filter = LdapSubstringFilter::default();
+                        for (i, StructureTag { class, id, payload }) in bv.iter().enumerate() {
+                            match (id, payload) {
+                                (0, PL::P(s)) => {
+                                    if i == 0 {
+                                        // If 'initial' is present, it SHALL
+                                        // be the first element of 'substrings'.
+                                        filter.initial = Some(String::from_utf8(s.clone()).ok()?);
+                                    } else {
+                                        return None;
+                                    }
+                                }
+                                (1, PL::P(s)) => {
+                                    filter.any.push(String::from_utf8(s.clone()).ok()?);
+                                }
+                                (2, PL::P(s)) => {
+                                    if i == bv.len() - 1 {
+                                        // If 'final' is present, it
+                                        // SHALL be the last element of 'substrings'.
+                                        filter.final_ = Some(String::from_utf8(s.clone()).ok()?);
+                                    } else {
+                                        return None;
+                                    }
+                                }
+                                _ => return None,
+                            }
+                        }
+                        Some(filter)
+                    })
+                    .ok_or(())?;
+
+                Ok(LdapFilter::Substring(ty, f))
+            }
             7 => {
                 let a = value
                     .expect_primitive()
@@ -773,6 +831,43 @@ impl From<LdapFilter> for Tag {
                     }),
                     Tag::OctetString(OctetString {
                         inner: Vec::from(v),
+                        ..Default::default()
+                    }),
+                ],
+            }),
+            LdapFilter::Substring(t, f) => Tag::Sequence(Sequence {
+                id: 4,
+                class: TagClass::Context,
+                inner: vec![
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(t),
+                        ..Default::default()
+                    }),
+                    Tag::Sequence(Sequence {
+                        inner: f
+                            .initial
+                            .into_iter()
+                            .map(|s| {
+                                Tag::OctetString(OctetString {
+                                    inner: Vec::from(s),
+                                    id: 0,
+                                    ..Default::default()
+                                })
+                            })
+                            .chain(f.any.into_iter().map(|s| {
+                                Tag::OctetString(OctetString {
+                                    inner: Vec::from(s),
+                                    id: 1,
+                                    ..Default::default()
+                                })
+                            })).chain(f.final_.into_iter().map(|s| {
+                                Tag::OctetString(OctetString {
+                                    inner: Vec::from(s),
+                                    id: 2,
+                                    ..Default::default()
+                                })
+                            }))
+                            .collect(),
                         ..Default::default()
                     }),
                 ],
