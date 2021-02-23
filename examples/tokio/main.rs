@@ -3,7 +3,6 @@ use tokio::net::{TcpListener, TcpStream};
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio_util::codec::{FramedRead, FramedWrite};
-use std::io;
 use std::net;
 use std::str::FromStr;
 use std::convert::TryFrom;
@@ -65,7 +64,7 @@ impl LdapSession {
     }
 }
 
-async fn handle_client(socket: TcpStream, paddr: net::SocketAddr) {
+async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
     // Configure the codec etc.
     let (r, w) = tokio::io::split(socket);
     let mut reqs = FramedRead::new(r, LdapCodec);
@@ -83,16 +82,16 @@ async fn handle_client(socket: TcpStream, paddr: net::SocketAddr) {
         }) {
             Ok(v) => v,
             Err(_) => {
-                resp.send(DisconnectionNotice::gen(
+                let _err = resp.send(DisconnectionNotice::gen(
                     LdapResultCode::Other,
                     "Internal Server Error",
                 )).await;
-                resp.flush().await;
+                let _err = resp.flush().await;
                 return;
             }
         };
 
-        let mut result = match server_op {
+        let result = match server_op {
             ServerOps::SimpleBind(sbr) => vec![session.do_bind(&sbr)],
             ServerOps::Search(sr) => session.do_search(&sr),
             ServerOps::Unbind(_) => {
@@ -115,7 +114,7 @@ async fn handle_client(socket: TcpStream, paddr: net::SocketAddr) {
     // Client disconnected
 }
 
-async fn acceptor(mut listener: Box<TcpListener>) {
+async fn acceptor(listener: Box<TcpListener>) {
     loop {
         match listener.accept().await {
             Ok((socket, paddr)) => {
