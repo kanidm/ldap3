@@ -84,6 +84,14 @@ pub enum LdapOp {
     SearchRequest(LdapSearchRequest),
     SearchResultEntry(LdapSearchResultEntry),
     SearchResultDone(LdapResult),
+    // https://tools.ietf.org/html/rfc4511#section-4.7
+    AddRequest(LdapAddRequest),
+    AddResponse(LdapResult),
+    // https://tools.ietf.org/html/rfc4511#section-4.8
+    DelRequest(String),
+    DelResponse(LdapResult),
+    // https://tools.ietf.org/html/rfc4511#section-4.11
+    AbandonRequest(i32),
     // https://tools.ietf.org/html/rfc4511#section-4.12
     ExtendedRequest(LdapExtendedRequest),
     ExtendedResponse(LdapExtendedResponse),
@@ -123,13 +131,20 @@ pub enum LdapDerefAliases {
     Always = 3,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LdapSubstringFilter {
+    pub initial: Option<String>,
+    pub any: Vec<String>,
+    pub final_: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LdapFilter {
     And(Vec<LdapFilter>),
     Or(Vec<LdapFilter>),
     Not(Box<LdapFilter>),
     Equality(String, String),
-    //SubString
+    Substring(String, LdapSubstringFilter),
     //GE
     //LE
     Present(String),
@@ -149,16 +164,27 @@ pub struct LdapSearchRequest {
     pub attrs: Vec<String>,
 }
 
+// https://tools.ietf.org/html/rfc4511#section-4.1.7
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapPartialAttribute {
     pub atype: String,
     pub vals: Vec<String>,
 }
 
+// A PartialAttribute allows zero values, while
+// Attribute requires at least one value.
+type LdapAttribute = LdapPartialAttribute;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapSearchResultEntry {
     pub dn: String,
     pub attributes: Vec<LdapPartialAttribute>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapAddRequest {
+    pub dn: String,
+    pub attributes: Vec<LdapAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -338,6 +364,20 @@ impl TryFrom<StructureTag> for LdapOp {
             (5, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::SearchResultDone(lr))
             }
+            (8, PL::C(inner)) => LdapAddRequest::try_from(inner).map(|v| LdapOp::AddRequest(v)),
+            (9, PL::C(inner)) => {
+                LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::AddResponse(lr))
+            }
+            (10, PL::P(inner)) => String::from_utf8(inner)
+                .ok()
+                .ok_or(())
+                .map(|s| LdapOp::DelRequest(s)),
+            (11, PL::C(inner)) => {
+                LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::DelResponse(lr))
+            }
+            (16, PL::P(inner)) => ber_integer_to_i64(inner)
+                .ok_or(())
+                .map(|s| LdapOp::AbandonRequest(s as i32)),
             (23, PL::C(inner)) => {
                 LdapExtendedRequest::try_from(inner).map(|v| LdapOp::ExtendedRequest(v))
             }
@@ -384,6 +424,31 @@ impl From<LdapOp> for Tag {
                 class: TagClass::Application,
                 id: 5,
                 inner: lr.into(),
+            }),
+            LdapOp::AddRequest(lar) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 8,
+                inner: lar.into(),
+            }),
+            LdapOp::AddResponse(lr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 9,
+                inner: lr.into(),
+            }),
+            LdapOp::DelRequest(s) => Tag::OctetString(OctetString {
+                class: TagClass::Application,
+                id: 10,
+                inner: Vec::from(s),
+            }),
+            LdapOp::DelResponse(lr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 11,
+                inner: lr.into(),
+            }),
+            LdapOp::AbandonRequest(id) => Tag::Integer(Integer {
+                class: TagClass::Application,
+                id: 16,
+                inner: id as i64,
             }),
             LdapOp::ExtendedRequest(ler) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
@@ -675,6 +740,57 @@ impl TryFrom<StructureTag> for LdapFilter {
 
                 Ok(LdapFilter::Equality(a, v))
             }
+            4 => {
+                let mut inner = value.expect_constructed().ok_or(())?;
+                inner.reverse();
+
+                let ty = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| String::from_utf8(bv).ok())
+                    .ok_or(())?;
+
+                let f = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Sequence as u64))
+                    .and_then(|t| t.expect_constructed())
+                    .and_then(|bv| {
+                        let mut filter = LdapSubstringFilter::default();
+                        for (i, StructureTag { class, id, payload }) in bv.iter().enumerate() {
+                            match (id, payload) {
+                                (0, PL::P(s)) => {
+                                    if i == 0 {
+                                        // If 'initial' is present, it SHALL
+                                        // be the first element of 'substrings'.
+                                        filter.initial = Some(String::from_utf8(s.clone()).ok()?);
+                                    } else {
+                                        return None;
+                                    }
+                                }
+                                (1, PL::P(s)) => {
+                                    filter.any.push(String::from_utf8(s.clone()).ok()?);
+                                }
+                                (2, PL::P(s)) => {
+                                    if i == bv.len() - 1 {
+                                        // If 'final' is present, it
+                                        // SHALL be the last element of 'substrings'.
+                                        filter.final_ = Some(String::from_utf8(s.clone()).ok()?);
+                                    } else {
+                                        return None;
+                                    }
+                                }
+                                _ => return None,
+                            }
+                        }
+                        Some(filter)
+                    })
+                    .ok_or(())?;
+
+                Ok(LdapFilter::Substring(ty, f))
+            }
             7 => {
                 let a = value
                     .expect_primitive()
@@ -715,6 +831,43 @@ impl From<LdapFilter> for Tag {
                     }),
                     Tag::OctetString(OctetString {
                         inner: Vec::from(v),
+                        ..Default::default()
+                    }),
+                ],
+            }),
+            LdapFilter::Substring(t, f) => Tag::Sequence(Sequence {
+                id: 4,
+                class: TagClass::Context,
+                inner: vec![
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(t),
+                        ..Default::default()
+                    }),
+                    Tag::Sequence(Sequence {
+                        inner: f
+                            .initial
+                            .into_iter()
+                            .map(|s| {
+                                Tag::OctetString(OctetString {
+                                    inner: Vec::from(s),
+                                    id: 0,
+                                    ..Default::default()
+                                })
+                            })
+                            .chain(f.any.into_iter().map(|s| {
+                                Tag::OctetString(OctetString {
+                                    inner: Vec::from(s),
+                                    id: 1,
+                                    ..Default::default()
+                                })
+                            })).chain(f.final_.into_iter().map(|s| {
+                                Tag::OctetString(OctetString {
+                                    inner: Vec::from(s),
+                                    id: 2,
+                                    ..Default::default()
+                                })
+                            }))
+                            .collect(),
                         ..Default::default()
                     }),
                 ],
@@ -1148,6 +1301,54 @@ impl TryFrom<i64> for LdapDerefAliases {
             3 => Ok(LdapDerefAliases::Always),
             _ => Err(()),
         }
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapAddRequest {
+    type Error = ();
+
+    fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        value.reverse();
+
+        let dn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let attributes = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Sequence as u64))
+            .and_then(|t| t.expect_constructed())
+            .and_then(|bset| {
+                let r: Result<Vec<_>, _> = bset
+                    .into_iter()
+                    .map(|bv| LdapAttribute::try_from(bv))
+                    .collect();
+                r.ok()
+            })
+            .ok_or(())?;
+
+        Ok(LdapAddRequest { dn, attributes })
+    }
+}
+
+impl From<LdapAddRequest> for Vec<Tag> {
+    fn from(value: LdapAddRequest) -> Vec<Tag> {
+        let LdapAddRequest { dn, attributes } = value;
+        vec![
+            Tag::OctetString(OctetString {
+                inner: Vec::from(dn),
+                ..Default::default()
+            }),
+            Tag::Sequence(Sequence {
+                inner: attributes.into_iter().map(|v| v.into()).collect(),
+                ..Default::default()
+            }),
+        ]
     }
 }
 

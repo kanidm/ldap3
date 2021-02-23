@@ -128,6 +128,16 @@ mod tests {
                     LdapFilter::Not(Box::new(LdapFilter::And(vec![LdapFilter::Present(
                         "cursed".to_string()
                     ),]))),
+                    LdapFilter::Substring("cn".to_string(), LdapSubstringFilter {
+                        initial: Some("abc".to_string()),
+                        any: vec!["def".to_string(), "ghi".to_string()],
+                        final_: Some("jkl".to_string())
+                    }),
+                    LdapFilter::Substring("cn".to_string(), LdapSubstringFilter {
+                        initial: None,
+                        any: vec![],
+                        final_: None
+                    })
                 ]),
                 attrs: vec!["cn".to_string(), "objectClass".to_string(),],
             }),
@@ -215,6 +225,67 @@ mod tests {
                 name: None,
                 value: Some(Vec::from("hello")),
             }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_addrequest() {
+        do_test!(LdapMsg {
+            msgid: 233,
+            op: LdapOp::AddRequest(LdapAddRequest {
+                dn: "dc=example,dc=com".to_string(),
+                attributes: vec![LdapPartialAttribute {
+                    atype: "objectClass".to_string(),
+                    vals: vec!["top".to_string(), "posixAccount".to_string()]
+                }],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_addresponse() {
+        do_test!(LdapMsg {
+            msgid: 23333,
+            op: LdapOp::AddResponse(LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "dc=exmaple,dc=com".to_string(),
+                message: "msg".to_string(),
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_delrequest() {
+        do_test!(LdapMsg {
+            msgid: 233,
+            op: LdapOp::DelRequest("dc=example, dc=com".to_string()),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_delresponse() {
+        do_test!(LdapMsg {
+            msgid: 23333,
+            op: LdapOp::DelResponse(LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "dc=exmaple,dc=com".to_string(),
+                message: "msg".to_string(),
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_abandonrequest() {
+        do_test!(LdapMsg {
+            msgid: 23333,
+            op: LdapOp::AbandonRequest(233),
             ctrl: vec![],
         });
     }
