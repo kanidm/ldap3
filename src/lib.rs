@@ -128,16 +128,22 @@ mod tests {
                     LdapFilter::Not(Box::new(LdapFilter::And(vec![LdapFilter::Present(
                         "cursed".to_string()
                     ),]))),
-                    LdapFilter::Substring("cn".to_string(), LdapSubstringFilter {
-                        initial: Some("abc".to_string()),
-                        any: vec!["def".to_string(), "ghi".to_string()],
-                        final_: Some("jkl".to_string())
-                    }),
-                    LdapFilter::Substring("cn".to_string(), LdapSubstringFilter {
-                        initial: None,
-                        any: vec![],
-                        final_: None
-                    })
+                    LdapFilter::Substring(
+                        "cn".to_string(),
+                        LdapSubstringFilter {
+                            initial: Some("abc".to_string()),
+                            any: vec!["def".to_string(), "ghi".to_string()],
+                            final_: Some("jkl".to_string())
+                        }
+                    ),
+                    LdapFilter::Substring(
+                        "cn".to_string(),
+                        LdapSubstringFilter {
+                            initial: None,
+                            any: vec![],
+                            final_: None
+                        }
+                    )
                 ]),
                 attrs: vec!["cn".to_string(), "objectClass".to_string(),],
             }),

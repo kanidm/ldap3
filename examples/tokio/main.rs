@@ -2,10 +2,10 @@ use tokio::net::{TcpListener, TcpStream};
 // use tokio::stream::StreamExt;
 use futures::SinkExt;
 use futures::StreamExt;
-use tokio_util::codec::{FramedRead, FramedWrite};
+use std::convert::TryFrom;
 use std::net;
 use std::str::FromStr;
-use std::convert::TryFrom;
+use tokio_util::codec::{FramedRead, FramedWrite};
 
 use ldap3_server::simple::*;
 use ldap3_server::LdapCodec;
@@ -76,16 +76,17 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
 
     while let Some(msg) = reqs.next().await {
         let server_op = match msg
-        .map_err(|_e| ())
-        .and_then(|msg| {
-            ServerOps::try_from(msg)
-        }) {
+            .map_err(|_e| ())
+            .and_then(|msg| ServerOps::try_from(msg))
+        {
             Ok(v) => v,
             Err(_) => {
-                let _err = resp.send(DisconnectionNotice::gen(
-                    LdapResultCode::Other,
-                    "Internal Server Error",
-                )).await;
+                let _err = resp
+                    .send(DisconnectionNotice::gen(
+                        LdapResultCode::Other,
+                        "Internal Server Error",
+                    ))
+                    .await;
                 let _err = resp.flush().await;
                 return;
             }

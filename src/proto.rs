@@ -84,6 +84,9 @@ pub enum LdapOp {
     SearchRequest(LdapSearchRequest),
     SearchResultEntry(LdapSearchResultEntry),
     SearchResultDone(LdapResult),
+    // https://datatracker.ietf.org/doc/html/rfc4511#section-4.6
+    ModifyRequest(LdapModifyRequest),
+    ModifyResponse(LdapResult),
     // https://tools.ietf.org/html/rfc4511#section-4.7
     AddRequest(LdapAddRequest),
     AddResponse(LdapResult),
@@ -173,7 +176,7 @@ pub struct LdapPartialAttribute {
 
 // A PartialAttribute allows zero values, while
 // Attribute requires at least one value.
-type LdapAttribute = LdapPartialAttribute;
+pub type LdapAttribute = LdapPartialAttribute;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapSearchResultEntry {
@@ -185,6 +188,26 @@ pub struct LdapSearchResultEntry {
 pub struct LdapAddRequest {
     pub dn: String,
     pub attributes: Vec<LdapAttribute>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapModifyRequest {
+    pub dn: String,
+    pub changes: Vec<LdapModify>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapModify {
+    pub operation: LdapModifyType,
+    pub modification: LdapPartialAttribute,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(i64)]
+pub enum LdapModifyType {
+    Add = 0,
+    Delete = 1,
+    Replace = 2,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -364,6 +387,9 @@ impl TryFrom<StructureTag> for LdapOp {
             (5, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::SearchResultDone(lr))
             }
+            (7, PL::C(inner)) => {
+                LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::ModifyResponse(lr))
+            }
             (8, PL::C(inner)) => LdapAddRequest::try_from(inner).map(|v| LdapOp::AddRequest(v)),
             (9, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::AddResponse(lr))
@@ -423,6 +449,16 @@ impl From<LdapOp> for Tag {
             LdapOp::SearchResultDone(lr) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
                 id: 5,
+                inner: lr.into(),
+            }),
+            LdapOp::ModifyRequest(mr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 6,
+                inner: mr.into(),
+            }),
+            LdapOp::ModifyResponse(lr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 7,
                 inner: lr.into(),
             }),
             LdapOp::AddRequest(lar) => Tag::Sequence(Sequence {
@@ -759,7 +795,15 @@ impl TryFrom<StructureTag> for LdapFilter {
                     .and_then(|t| t.expect_constructed())
                     .and_then(|bv| {
                         let mut filter = LdapSubstringFilter::default();
-                        for (i, StructureTag { class, id, payload }) in bv.iter().enumerate() {
+                        for (
+                            i,
+                            StructureTag {
+                                class: _,
+                                id,
+                                payload,
+                            },
+                        ) in bv.iter().enumerate()
+                        {
                             match (id, payload) {
                                 (0, PL::P(s)) => {
                                     if i == 0 {
@@ -860,7 +904,8 @@ impl From<LdapFilter> for Tag {
                                     id: 1,
                                     ..Default::default()
                                 })
-                            })).chain(f.final_.into_iter().map(|s| {
+                            }))
+                            .chain(f.final_.into_iter().map(|s| {
                                 Tag::OctetString(OctetString {
                                     inner: Vec::from(s),
                                     id: 2,
@@ -1333,6 +1378,43 @@ impl TryFrom<Vec<StructureTag>> for LdapAddRequest {
             .ok_or(())?;
 
         Ok(LdapAddRequest { dn, attributes })
+    }
+}
+
+impl From<LdapModify> for Tag {
+    fn from(value: LdapModify) -> Tag {
+        let LdapModify {
+            operation,
+            modification,
+        } = value;
+        let inner = vec![
+            Tag::Enumerated(Enumerated {
+                inner: operation as i64,
+                ..Default::default()
+            }),
+            modification.into(),
+        ];
+
+        Tag::Sequence(Sequence {
+            inner,
+            ..Default::default()
+        })
+    }
+}
+
+impl From<LdapModifyRequest> for Vec<Tag> {
+    fn from(value: LdapModifyRequest) -> Vec<Tag> {
+        let LdapModifyRequest { dn, changes } = value;
+        vec![
+            Tag::OctetString(OctetString {
+                inner: Vec::from(dn),
+                ..Default::default()
+            }),
+            Tag::Sequence(Sequence {
+                inner: changes.into_iter().map(|v| v.into()).collect(),
+                ..Default::default()
+            }),
+        ]
     }
 }
 
