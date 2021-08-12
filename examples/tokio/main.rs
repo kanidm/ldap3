@@ -20,27 +20,14 @@ pub struct LdapSession {
 
 fn apply_filter_to_entry(filter: &LdapFilter, attrs: &Attrs) -> bool {
     let x = match filter {
-        LdapFilter::And(inner) => {
-            inner.iter()
-                .all(|f| apply_filter_to_entry(f, attrs) )
-        }
-        LdapFilter::Or(inner) => {
-            inner.iter()
-                .any(|f| apply_filter_to_entry(f, attrs) )
-        }
-        LdapFilter::Not(inner) => {
-            !apply_filter_to_entry(&inner, attrs)
-        }
-        LdapFilter::Present(attr) => {
-            attrs.contains_key(attr.to_lowercase().as_str())
-        }
-        LdapFilter::Equality(attr, value) => {
-            attrs.get(attr.to_lowercase().as_str())
-                .map(|v| {
-                    v.contains(&value)
-                })
-                .unwrap_or(false)
-        }
+        LdapFilter::And(inner) => inner.iter().all(|f| apply_filter_to_entry(f, attrs)),
+        LdapFilter::Or(inner) => inner.iter().any(|f| apply_filter_to_entry(f, attrs)),
+        LdapFilter::Not(inner) => !apply_filter_to_entry(&inner, attrs),
+        LdapFilter::Present(attr) => attrs.contains_key(attr.to_lowercase().as_str()),
+        LdapFilter::Equality(attr, value) => attrs
+            .get(attr.to_lowercase().as_str())
+            .map(|v| v.contains(&value.to_lowercase()))
+            .unwrap_or(false),
         LdapFilter::Substring(attr, sub) => {
             // too hard basket XD
             false
@@ -110,25 +97,36 @@ impl LdapSession {
                         || dn.ends_with(&lsr.base))
                         && apply_filter_to_entry(&lsr.filter, attrs)
                     {
-                        Some(lsr.gen_result_entry(
-                            LdapSearchResultEntry {
+                        Some(
+                            lsr.gen_result_entry(LdapSearchResultEntry {
                                 dn: dn.clone(),
-                                attributes: attrs.iter()
-                                    .filter(|(k, _)|
-                                        lsr.attrs.is_empty() ||
-                                        lsr.attrs.contains(&"*".to_string()) ||
-                                        lsr.attrs.contains(&"+".to_string()) ||
-                                        lsr.attrs.contains(&k)
-                                    )
-                                    .map(|(k, v)| {
-                                        LdapPartialAttribute {
-                                            atype: k.clone(),
-                                            vals: v.clone()
+                                attributes: attrs
+                                    .iter()
+                                    // Ldap is so fucken dumb. We have to return attrs in the
+                                    // same capitalisation as requested. ffs.
+                                    .filter_map(|(k, v)| {
+                                        let nk = lsr
+                                            .attrs
+                                            .iter()
+                                            .find(|rk| rk.to_lowercase() == k.to_lowercase())
+                                            .cloned();
+
+                                        if lsr.attrs.is_empty()
+                                            || lsr.attrs.contains(&"*".to_string())
+                                            || lsr.attrs.contains(&"+".to_string())
+                                            || nk.is_some()
+                                        {
+                                            Some(LdapPartialAttribute {
+                                                atype: nk.unwrap_or_else(|| k.clone()),
+                                                vals: v.clone(),
+                                            })
+                                        } else {
+                                            None
                                         }
                                     })
                                     .collect(),
-                            }
-                        ))
+                            }),
+                        )
                     } else {
                         None
                     }
@@ -213,7 +211,8 @@ async fn acceptor(db: Arc<DB>, listener: Box<TcpListener>) {
 
 #[tokio::main]
 async fn main() -> () {
-    let addr = net::SocketAddr::from_str("127.0.0.1:12345").unwrap();
+    let laddr = "0.0.0.0:3636";
+    let addr = net::SocketAddr::from_str(laddr).unwrap();
     let listener = Box::new(TcpListener::bind(&addr).await.unwrap());
 
     // Simple Db
@@ -223,93 +222,40 @@ async fn main() -> () {
     let mut attrs = HashMap::new();
     attrs.insert(
         "objectclass".to_string(),
-        vec![
-            "top".to_string(),
-            "domain".to_string(),
-        ]
+        vec!["top".to_string(), "domain".to_string()],
     );
-    attrs.insert(
-        "dc".to_string(),
-        vec![
-            "example".to_string(),
-        ]
-    );
+    attrs.insert("dc".to_string(), vec!["example".to_string()]);
     attrs.insert(
         "entryuuid".to_string(),
-        vec![
-            "883a221d-2875-4531-8e9b-f08e0c2e91ea".to_string(),
-        ]
+        vec!["883a221d-2875-4531-8e9b-f08e0c2e91ea".to_string()],
     );
-    db.insert(
-        "dc=example,dc=com".to_string(),
-        attrs
-    );
+    db.insert("dc=example,dc=com".to_string(), attrs);
 
     let mut user = HashMap::new();
     user.insert(
         "objectclass".to_string(),
-        vec![
-            "posixaccount".to_string(),
-            "account".to_string(),
-        ]
+        vec!["posixaccount".to_string(), "account".to_string()],
     );
     user.insert(
         "entryuuid".to_string(),
-        vec![
-            "3e1c484b-f1b0-462c-a840-a4cf13b67e99".to_string(),
-        ]
+        vec!["3e1c484b-f1b0-462c-a840-a4cf13b67e99".to_string()],
     );
-    user.insert(
-        "uidnumber".to_string(),
-        vec![
-            "12345".to_string(),
-        ]
-    );
-    user.insert(
-        "gidnumber".to_string(),
-        vec![
-            "12345".to_string(),
-        ]
-    );
-    user.insert(
-        "gecos".to_string(),
-        vec![
-            "TestAccount".to_string(),
-        ]
-    );
-    user.insert(
-        "uid".to_string(),
-        vec![
-            "testacct".to_string(),
-        ]
-    );
-    user.insert(
-        "cn".to_string(),
-        vec![
-            "testacct".to_string(),
-        ]
-    );
+    user.insert("uidnumber".to_string(), vec!["12345".to_string()]);
+    user.insert("gidnumber".to_string(), vec!["12345".to_string()]);
+    user.insert("gecos".to_string(), vec!["TestAccount".to_string()]);
+    user.insert("uid".to_string(), vec!["testacct".to_string()]);
+    user.insert("cn".to_string(), vec!["testacct".to_string()]);
     user.insert(
         "homedirectory".to_string(),
-        vec![
-            "/home/testacct".to_string(),
-        ]
+        vec!["/home/testacct".to_string()],
     );
-    user.insert(
-        "loginshell".to_string(),
-        vec![
-            "/bin/bash".to_string(),
-        ]
-    );
+    user.insert("loginshell".to_string(), vec!["/bin/bash".to_string()]);
 
-    db.insert(
-        "uid=testacct,dc=example,dc=com".to_string(),
-        user
-    );
+    db.insert("uid=testacct,dc=example,dc=com".to_string(), user);
 
     // Initiate the acceptor task.
     tokio::spawn(acceptor(Arc::new(db), listener));
 
-    println!("started ldap://127.0.0.1:12345 ...");
+    println!("started ldap://{} ...", laddr);
     tokio::signal::ctrl_c().await.unwrap();
 }
