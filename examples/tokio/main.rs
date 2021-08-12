@@ -100,6 +100,9 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
                 return;
             }
             ServerOps::Whoami(wr) => vec![session.do_whoami(&wr)],
+            ServerOps::ExtendedOperation(exop) => {
+                vec![exop.gen_protocolerror("")]
+            }
         };
 
         for rmsg in result.into_iter() {

@@ -25,6 +25,12 @@ pub struct WhoamiRequest {
     pub msgid: i32,
 }
 
+pub struct ExopRequest {
+    pub msgid: i32,
+    pub name: String,
+    pub value: Option<Vec<u8>>,
+}
+
 pub struct DisconnectionNotice;
 
 pub enum ServerOps {
@@ -32,6 +38,7 @@ pub enum ServerOps {
     SimpleBind(SimpleBindRequest),
     Unbind(UnbindRequest),
     Whoami(WhoamiRequest),
+    ExtendedOperation(ExopRequest),
 }
 
 impl TryFrom<LdapMsg> for ServerOps {
@@ -64,10 +71,18 @@ impl TryFrom<LdapMsg> for ServerOps {
                     attrs,
                 }))
             }
-            LdapOp::ExtendedRequest(ler) => match ler.name.as_str() {
-                "1.3.6.1.4.1.4203.1.11.3" => Ok(ServerOps::Whoami(WhoamiRequest { msgid })),
-                _ => Err(()),
-            },
+            LdapOp::ExtendedRequest(ler) => {
+                if ler.name.as_str() == "1.3.6.1.4.1.4203.1.11.3" {
+                    Ok(ServerOps::Whoami(WhoamiRequest { msgid }))
+                } else {
+                    let LdapExtendedRequest { name, value } = ler;
+                    Ok(ServerOps::ExtendedOperation(ExopRequest {
+                        msgid,
+                        name,
+                        value,
+                    }))
+                }
+            }
             _ => Err(()),
         }
     }
@@ -238,6 +253,25 @@ impl WhoamiRequest {
                     referral: Vec::new(),
                 },
                 name: None,
+                value: None,
+            }),
+            ctrl: vec![],
+        }
+    }
+}
+
+impl ExopRequest {
+    pub fn gen_protocolerror(&self, msg: &str) -> LdapMsg {
+        LdapMsg {
+            msgid: self.msgid,
+            op: LdapOp::ExtendedResponse(LdapExtendedResponse {
+                res: LdapResult {
+                    code: LdapResultCode::ProtocolError,
+                    matcheddn: "".to_string(),
+                    message: msg.to_string(),
+                    referral: Vec::new(),
+                },
+                name: Some(self.name.clone()),
                 value: None,
             }),
             ctrl: vec![],
