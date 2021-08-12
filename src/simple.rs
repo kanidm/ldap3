@@ -5,6 +5,7 @@ pub use crate::proto::{
 };
 use std::convert::TryFrom;
 
+#[derive(Debug)]
 pub struct SearchRequest {
     pub msgid: i32,
     pub base: String,

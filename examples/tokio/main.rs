@@ -1,22 +1,58 @@
-use tokio::net::{TcpListener, TcpStream};
-// use tokio::stream::StreamExt;
 use futures::SinkExt;
 use futures::StreamExt;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::net;
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
 use ldap3_server::simple::*;
 use ldap3_server::LdapCodec;
 
+type Attrs = HashMap<String, Vec<String>>;
+type DB = BTreeMap<String, Attrs>;
+
 pub struct LdapSession {
     dn: String,
 }
 
+fn apply_filter_to_entry(filter: &LdapFilter, attrs: &Attrs) -> bool {
+    let x = match filter {
+        LdapFilter::And(inner) => {
+            inner.iter()
+                .all(|f| apply_filter_to_entry(f, attrs) )
+        }
+        LdapFilter::Or(inner) => {
+            inner.iter()
+                .any(|f| apply_filter_to_entry(f, attrs) )
+        }
+        LdapFilter::Not(inner) => {
+            !apply_filter_to_entry(&inner, attrs)
+        }
+        LdapFilter::Present(attr) => {
+            attrs.contains_key(attr.to_lowercase().as_str())
+        }
+        LdapFilter::Equality(attr, value) => {
+            attrs.get(attr.to_lowercase().as_str())
+                .map(|v| {
+                    v.contains(&value)
+                })
+                .unwrap_or(false)
+        }
+        LdapFilter::Substring(attr, sub) => {
+            // too hard basket XD
+            false
+        }
+    };
+    eprintln!("{:?} => eval {}", filter, x);
+    x
+}
+
 impl LdapSession {
-    pub fn do_bind(&mut self, sbr: &SimpleBindRequest) -> LdapMsg {
-        if sbr.dn == "cn=Directory Manager" && sbr.pw == "password" {
+    pub fn do_bind(&mut self, sbr: &SimpleBindRequest, db: &DB) -> LdapMsg {
+        if db.contains_key(&sbr.dn) && sbr.pw == "password" {
             self.dn = sbr.dn.to_string();
             sbr.gen_success()
         } else if sbr.dn == "" && sbr.pw == "" {
@@ -27,36 +63,79 @@ impl LdapSession {
         }
     }
 
-    pub fn do_search(&mut self, lsr: &SearchRequest) -> Vec<LdapMsg> {
-        vec![
-            lsr.gen_result_entry(LdapSearchResultEntry {
-                dn: "cn=hello,dc=example,dc=com".to_string(),
-                attributes: vec![
-                    LdapPartialAttribute {
-                        atype: "objectClass".to_string(),
-                        vals: vec!["cursed".to_string()],
-                    },
-                    LdapPartialAttribute {
-                        atype: "cn".to_string(),
-                        vals: vec!["hello".to_string()],
-                    },
-                ],
-            }),
-            lsr.gen_result_entry(LdapSearchResultEntry {
-                dn: "cn=world,dc=example,dc=com".to_string(),
-                attributes: vec![
-                    LdapPartialAttribute {
-                        atype: "objectClass".to_string(),
-                        vals: vec!["cursed".to_string()],
-                    },
-                    LdapPartialAttribute {
-                        atype: "cn".to_string(),
-                        vals: vec!["world".to_string()],
-                    },
-                ],
-            }),
-            lsr.gen_success(),
-        ]
+    pub fn do_search(&mut self, lsr: &SearchRequest, db: &DB) -> Vec<LdapMsg> {
+        eprintln!("{:?}", lsr);
+        if lsr.base == "" {
+            vec![
+                lsr.gen_result_entry(LdapSearchResultEntry {
+                    dn: "".to_string(),
+                    attributes: vec![
+                        LdapPartialAttribute {
+                            atype: "objectClass".to_string(),
+                            vals: vec!["top".to_string()],
+                        },
+                        LdapPartialAttribute {
+                            atype: "vendorName".to_string(),
+                            vals: vec!["Kanidm Project".to_string()],
+                        },
+                        LdapPartialAttribute {
+                            atype: "vendorVersion".to_string(),
+                            vals: vec!["ldap3_server_example".to_string()],
+                        },
+                        LdapPartialAttribute {
+                            atype: "supportedLDAPVersion".to_string(),
+                            vals: vec!["3".to_string()],
+                        },
+                        LdapPartialAttribute {
+                            atype: "supportedExtension".to_string(),
+                            vals: vec!["1.3.6.1.4.1.4203.1.11.3".to_string()],
+                        },
+                        LdapPartialAttribute {
+                            atype: "supportedFeatures".to_string(),
+                            vals: vec!["1.3.6.1.4.1.4203.1.5.1".to_string()],
+                        },
+                        LdapPartialAttribute {
+                            atype: "defaultnamingcontext".to_string(),
+                            vals: vec!["dc=example,dc=com".to_string()],
+                        },
+                    ],
+                }),
+                lsr.gen_success(),
+            ]
+        } else {
+            db.iter()
+                .filter_map(|(dn, attrs)| {
+                    eprintln!(" --> {}", dn);
+                    if ((lsr.scope == LdapSearchScope::Base && &lsr.base == dn)
+                        || dn.ends_with(&lsr.base))
+                        && apply_filter_to_entry(&lsr.filter, attrs)
+                    {
+                        Some(lsr.gen_result_entry(
+                            LdapSearchResultEntry {
+                                dn: dn.clone(),
+                                attributes: attrs.iter()
+                                    .filter(|(k, _)|
+                                        lsr.attrs.is_empty() ||
+                                        lsr.attrs.contains(&"*".to_string()) ||
+                                        lsr.attrs.contains(&"+".to_string()) ||
+                                        lsr.attrs.contains(&k)
+                                    )
+                                    .map(|(k, v)| {
+                                        LdapPartialAttribute {
+                                            atype: k.clone(),
+                                            vals: v.clone()
+                                        }
+                                    })
+                                    .collect(),
+                            }
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .chain(std::iter::once(lsr.gen_success()))
+                .collect()
+        }
     }
 
     pub fn do_whoami(&mut self, wr: &WhoamiRequest) -> LdapMsg {
@@ -64,7 +143,8 @@ impl LdapSession {
     }
 }
 
-async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
+async fn handle_client(socket: TcpStream, paddr: net::SocketAddr, db: Arc<DB>) {
+    eprintln!("paddr -> {:?}", paddr);
     // Configure the codec etc.
     let (r, w) = tokio::io::split(socket);
     let mut reqs = FramedRead::new(r, LdapCodec);
@@ -93,8 +173,8 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
         };
 
         let result = match server_op {
-            ServerOps::SimpleBind(sbr) => vec![session.do_bind(&sbr)],
-            ServerOps::Search(sr) => session.do_search(&sr),
+            ServerOps::SimpleBind(sbr) => vec![session.do_bind(&sbr, db.as_ref())],
+            ServerOps::Search(sr) => session.do_search(&sr, db.as_ref()),
             ServerOps::Unbind(_) => {
                 // No need to notify on unbind (per rfc4511)
                 return;
@@ -118,11 +198,11 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
     // Client disconnected
 }
 
-async fn acceptor(listener: Box<TcpListener>) {
+async fn acceptor(db: Arc<DB>, listener: Box<TcpListener>) {
     loop {
         match listener.accept().await {
             Ok((socket, paddr)) => {
-                tokio::spawn(handle_client(socket, paddr));
+                tokio::spawn(handle_client(socket, paddr, db.clone()));
             }
             Err(_e) => {
                 //pass
@@ -136,8 +216,99 @@ async fn main() -> () {
     let addr = net::SocketAddr::from_str("127.0.0.1:12345").unwrap();
     let listener = Box::new(TcpListener::bind(&addr).await.unwrap());
 
+    // Simple Db
+    let mut db = BTreeMap::new();
+
+    // Insert some default content.
+    let mut attrs = HashMap::new();
+    attrs.insert(
+        "objectclass".to_string(),
+        vec![
+            "top".to_string(),
+            "domain".to_string(),
+        ]
+    );
+    attrs.insert(
+        "dc".to_string(),
+        vec![
+            "example".to_string(),
+        ]
+    );
+    attrs.insert(
+        "entryuuid".to_string(),
+        vec![
+            "883a221d-2875-4531-8e9b-f08e0c2e91ea".to_string(),
+        ]
+    );
+    db.insert(
+        "dc=example,dc=com".to_string(),
+        attrs
+    );
+
+    let mut user = HashMap::new();
+    user.insert(
+        "objectclass".to_string(),
+        vec![
+            "posixaccount".to_string(),
+            "account".to_string(),
+        ]
+    );
+    user.insert(
+        "entryuuid".to_string(),
+        vec![
+            "3e1c484b-f1b0-462c-a840-a4cf13b67e99".to_string(),
+        ]
+    );
+    user.insert(
+        "uidnumber".to_string(),
+        vec![
+            "12345".to_string(),
+        ]
+    );
+    user.insert(
+        "gidnumber".to_string(),
+        vec![
+            "12345".to_string(),
+        ]
+    );
+    user.insert(
+        "gecos".to_string(),
+        vec![
+            "TestAccount".to_string(),
+        ]
+    );
+    user.insert(
+        "uid".to_string(),
+        vec![
+            "testacct".to_string(),
+        ]
+    );
+    user.insert(
+        "cn".to_string(),
+        vec![
+            "testacct".to_string(),
+        ]
+    );
+    user.insert(
+        "homedirectory".to_string(),
+        vec![
+            "/home/testacct".to_string(),
+        ]
+    );
+    user.insert(
+        "loginshell".to_string(),
+        vec![
+            "/bin/bash".to_string(),
+        ]
+    );
+
+    db.insert(
+        "uid=testacct,dc=example,dc=com".to_string(),
+        user
+    );
+
     // Initiate the acceptor task.
-    tokio::spawn(acceptor(listener));
+    tokio::spawn(acceptor(Arc::new(db), listener));
 
     println!("started ldap://127.0.0.1:12345 ...");
     tokio::signal::ctrl_c().await.unwrap();
