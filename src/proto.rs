@@ -72,7 +72,7 @@ pub struct LdapResult {
     pub code: LdapResultCode,
     pub matcheddn: String,
     pub message: String,
-    pub referral: Vec<()>,
+    pub referral: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -603,8 +603,21 @@ impl LdapResult {
         }))
         .chain(once_with(move || {
             if referral.len() > 0 {
+                let inner = referral
+                    .iter()
+                    .map(|s| {
+                        Tag::OctetString(OctetString {
+                            inner: Vec::from(s.clone()),
+                            ..Default::default()
+                        })
+                    })
+                    .collect();
                 // Remember to mark this as id 3, class::Context  (I think)
-                unimplemented!();
+                Some(Tag::Sequence(Sequence {
+                    class: TagClass::Context,
+                    id: 3,
+                    inner,
+                }))
             } else {
                 None
             }
