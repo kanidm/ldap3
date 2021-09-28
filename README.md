@@ -2,8 +2,8 @@
 
 This is a work-in-progress of LDAP3 server and client capable protocol bindings.
 
-This is *not* an LDAP3 server - it is the required parts to allow you to build one
-using a TCP server. You will and should develop your own server state machine, and
+This is *not* an LDAP3 server or client - it is the required parts to allow you to build one
+using a TCP server/client. You will and should develop your own state machine, and
 should consider the many security risks of LDAP3 such as filter stack limits,
 request sizelimits, number of entries limited in results, binds and how you
 check access controls, and more.
@@ -16,27 +16,27 @@ a server, discarding many of the esoteric options that are generally not require
 
 ## Examples
 
-There is an example hardcoded server using Actix in `examples`
+There is an example hardcoded server using tokio in `examples`
 
 ## ScoreCard
 
 | name | from rfc | implemented? |
 | ---- | -------- | ------------ |
-| bind | rfc4511  | ✅ (only simple bind) |
+| bind | rfc4511  | ✅ (only simple bind will be supported) |
 | unbind | rfc4511 | ✅ |
 | search | rfc4511 | ✅ |
-| filter | rfc4511 | 🔨 (excluding sub, ge, le, aprx, ext) |
-| modify | rfc4511 | ❌ |
-| add | rfc4511 | ❌ |
-| delete | rfc4511 | ❌ |
+| filter | rfc4511 | 🔨 (excluding ge, le, aprx, ext) |
+| modify | rfc4511 | ✅ |
+| add | rfc4511 | ✅ |
+| delete | rfc4511 | ✅ |
 | modRDN | rfc4511 | ❌ |
 | compare | rfc4511 | ❌ |
-| abandon | rfc4511 | ❌ |
-| extended | rfc4511 | ✅ (may need changes) |
+| abandon | rfc4511 | ✅ |
+| extended | rfc4511 | ✅ (may need extension) |
 | whoami | rfc4532 | ✅ |
 | disconnection notice | rfc4511 | ✅ |
 
-## Things we probably won't add
+## Things we won't add
 
 StartTLS has a number of security issues compared to LDAPS, and should *not* be used, or developed
 as it is not only more complex, but also worse than LDAPS. Use LDAPS.
@@ -49,3 +49,4 @@ too complicated. Again, use LDAPS.
 ## Notes:
 
 LDAP - the trashfire we have, not the trashfire we want.
+
