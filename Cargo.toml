@@ -19,7 +19,7 @@ tokio-util = { version = "0.6", features = ["codec"] }
 bytes = "1"
 
 [dev-dependencies]
-env_logger = "0.8"
+env_logger = "0.9"
 log = "0.4"
 
 futures-util = "0.3"
