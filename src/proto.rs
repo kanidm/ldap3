@@ -5,6 +5,13 @@ use lber::structures::{
     Boolean, Enumerated, ExplicitTag, Integer, Null, OctetString, Sequence, Set, Tag,
 };
 use lber::universal::Types;
+use lber::write as lber_write;
+
+use lber::parse::Parser;
+use lber::{Consumer, ConsumerState, Input};
+
+use bytes::BytesMut;
+
 use std::convert::{From, TryFrom};
 use std::iter::once_with;
 
@@ -225,6 +232,177 @@ pub struct LdapExtendedResponse {
     pub name: Option<String>,
     // 11
     pub value: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapPasswordModifyRequest {
+    pub user_identity: Option<String>,
+    pub old_password: Option<String>,
+    pub new_password: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapPasswordModifyResponse {
+    pub res: LdapResult,
+    pub gen_password: Option<String>,
+}
+
+impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
+    fn from(value: LdapPasswordModifyRequest) -> LdapExtendedRequest {
+        let inner: Vec<_> = vec![
+            value.user_identity.map(|s| {
+                Tag::OctetString(OctetString {
+                    class: TagClass::Application,
+                    id: 0,
+                    inner: Vec::from(s),
+                })
+            }),
+            value.old_password.map(|s| {
+                Tag::OctetString(OctetString {
+                    class: TagClass::Application,
+                    id: 1,
+                    inner: Vec::from(s),
+                })
+            }),
+            value.new_password.map(|s| {
+                Tag::OctetString(OctetString {
+                    class: TagClass::Application,
+                    id: 2,
+                    inner: Vec::from(s),
+                })
+            }),
+        ];
+
+        let tag = Tag::Sequence(Sequence {
+            inner: inner.into_iter().filter_map(|v| v).collect(),
+            ..Default::default()
+        });
+
+        let mut bytes = BytesMut::new();
+
+        lber_write::encode_into(&mut bytes, tag.into_structure()).unwrap();
+
+        LdapExtendedRequest {
+            name: "1.3.6.1.4.1.4203.1.11.1".to_string(),
+            value: Some(bytes.to_vec()),
+        }
+    }
+}
+
+impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
+    type Error = ();
+    fn try_from(value: &LdapExtendedRequest) -> Result<Self, Self::Error> {
+        // 1.3.6.1.4.1.4203.1.11.1
+        if value.name != "1.3.6.1.4.1.4203.1.11.1" {
+            return Err(());
+        }
+
+        let buf = if let Some(b) = &value.value {
+            b
+        } else {
+            return Err(());
+        };
+
+        let mut parser = Parser::new();
+        let (_size, msg) = match *parser.handle(Input::Element(&buf)) {
+            ConsumerState::Done(size, ref msg) => (size, msg),
+            _ => return Err(()),
+        };
+
+        let seq = msg
+            .clone()
+            .match_id(Types::Sequence as u64)
+            .and_then(|t| t.expect_constructed())
+            .ok_or(())?;
+
+        let mut lpmr = LdapPasswordModifyRequest {
+            user_identity: None,
+            old_password: None,
+            new_password: None,
+        };
+
+        for t in seq.into_iter() {
+            let id = t.id;
+            let s = t
+                .expect_primitive()
+                .and_then(|bv| String::from_utf8(bv).ok())
+                .ok_or(())?;
+
+            match id {
+                0 => lpmr.user_identity = Some(s),
+                1 => lpmr.old_password = Some(s),
+                2 => lpmr.new_password = Some(s),
+                _ => return Err(()),
+            }
+        }
+
+        Ok(lpmr)
+    }
+}
+
+impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
+    fn from(value: LdapPasswordModifyResponse) -> LdapExtendedResponse {
+        let inner: Vec<_> = vec![value.gen_password.map(|s| {
+            Tag::OctetString(OctetString {
+                class: TagClass::Application,
+                id: 0,
+                inner: Vec::from(s),
+            })
+        })];
+
+        let tag = Tag::Sequence(Sequence {
+            inner: inner.into_iter().filter_map(|v| v).collect(),
+            ..Default::default()
+        });
+
+        let mut bytes = BytesMut::new();
+
+        lber_write::encode_into(&mut bytes, tag.into_structure()).unwrap();
+
+        LdapExtendedResponse {
+            res: value.res,
+            name: Some("1.3.6.1.4.1.4203.1.11.1".to_string()),
+            value: Some(bytes.to_vec()),
+        }
+    }
+}
+
+impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
+    type Error = ();
+    fn try_from(value: &LdapExtendedResponse) -> Result<Self, Self::Error> {
+        if value.name.as_deref() != Some("1.3.6.1.4.1.4203.1.11.1") {
+            return Err(());
+        }
+
+        let buf = if let Some(b) = &value.value {
+            b
+        } else {
+            return Err(());
+        };
+
+        let mut parser = Parser::new();
+        let (_size, msg) = match *parser.handle(Input::Element(&buf)) {
+            ConsumerState::Done(size, ref msg) => (size, msg),
+            _ => return Err(()),
+        };
+
+        let mut seq = msg
+            .clone()
+            .match_id(Types::Sequence as u64)
+            .and_then(|t| t.expect_constructed())
+            .ok_or(())?;
+
+        let gen_password = seq
+            .pop()
+            .and_then(|t| t.match_id(0))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok());
+
+        Ok(LdapPasswordModifyResponse {
+            res: value.res.clone(),
+            gen_password,
+        })
+    }
 }
 
 impl From<LdapBindCred> for Tag {
