@@ -252,21 +252,21 @@ impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
         let inner: Vec<_> = vec![
             value.user_identity.map(|s| {
                 Tag::OctetString(OctetString {
-                    class: TagClass::Application,
+                    class: TagClass::Context,
                     id: 0,
                     inner: Vec::from(s),
                 })
             }),
             value.old_password.map(|s| {
                 Tag::OctetString(OctetString {
-                    class: TagClass::Application,
+                    class: TagClass::Context,
                     id: 1,
                     inner: Vec::from(s),
                 })
             }),
             value.new_password.map(|s| {
                 Tag::OctetString(OctetString {
-                    class: TagClass::Application,
+                    class: TagClass::Context,
                     id: 2,
                     inner: Vec::from(s),
                 })
@@ -344,7 +344,7 @@ impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
     fn from(value: LdapPasswordModifyResponse) -> LdapExtendedResponse {
         let inner: Vec<_> = vec![value.gen_password.map(|s| {
             Tag::OctetString(OctetString {
-                class: TagClass::Application,
+                class: TagClass::Context,
                 id: 0,
                 inner: Vec::from(s),
             })
@@ -361,7 +361,8 @@ impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
 
         LdapExtendedResponse {
             res: value.res,
-            name: Some("1.3.6.1.4.1.4203.1.11.1".to_string()),
+            // responseName is absent.
+            name: None,
             value: Some(bytes.to_vec()),
         }
     }
@@ -370,7 +371,7 @@ impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
 impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
     type Error = ();
     fn try_from(value: &LdapExtendedResponse) -> Result<Self, Self::Error> {
-        if value.name.as_deref() != Some("1.3.6.1.4.1.4203.1.11.1") {
+        if !value.name.is_none() {
             return Err(());
         }
 
