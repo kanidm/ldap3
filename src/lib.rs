@@ -295,4 +295,36 @@ mod tests {
             ctrl: vec![],
         });
     }
+
+    #[test]
+    fn test_ldapserver_codec_modify_request() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::ModifyRequest(LdapModifyRequest {
+                dn: "cn=bob,ou=people,dc=example,dc=com".to_string(),
+                changes: vec![LdapModify {
+                    operation: LdapModifyType::Replace,
+                    modification: LdapPartialAttribute {
+                        atype: "userPassword".to_string(),
+                        vals: vec!["password".to_string()],
+                    }
+                }],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_modify_response() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::ModifyResponse(LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "cn=Directory Manager".to_string(),
+                message: "It works!".to_string(),
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        });
+    }
 }

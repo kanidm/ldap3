@@ -387,6 +387,9 @@ impl TryFrom<StructureTag> for LdapOp {
             (5, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::SearchResultDone(lr))
             }
+            (6, PL::C(inner)) => {
+                LdapModifyRequest::try_from(inner).map(|v| LdapOp::ModifyRequest(v))
+            }
             (7, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::ModifyResponse(lr))
             }
@@ -1082,6 +1085,40 @@ impl From<LdapSearchRequest> for Vec<Tag> {
     }
 }
 
+impl TryFrom<StructureTag> for LdapModify {
+    type Error = ();
+
+    fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
+        // get the inner from the sequence
+        let mut inner = value
+            .match_class(TagClass::Universal)
+            .and_then(|t| t.match_id(Types::Sequence as u64))
+            .and_then(|t| t.expect_constructed())
+            .ok_or(())?;
+
+        inner.reverse();
+
+        let operation = inner
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Enumerated as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(ber_integer_to_i64)
+            .ok_or(())
+            .and_then(|i| LdapModifyType::try_from(i))?;
+
+        let modification = inner
+            .pop()
+            .and_then(|t| LdapPartialAttribute::try_from(t).ok())
+            .ok_or(())?;
+
+        Ok(Self {
+            operation,
+            modification,
+        })
+    }
+}
+
 impl TryFrom<StructureTag> for LdapPartialAttribute {
     type Error = ();
 
@@ -1335,6 +1372,19 @@ impl LdapExtendedResponse {
     }
 }
 
+impl TryFrom<i64> for LdapModifyType {
+    type Error = ();
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(LdapModifyType::Add),
+            1 => Ok(LdapModifyType::Delete),
+            2 => Ok(LdapModifyType::Replace),
+            _ => Err(()),
+        }
+    }
+}
+
 impl TryFrom<i64> for LdapSearchScope {
     type Error = ();
 
@@ -1359,6 +1409,38 @@ impl TryFrom<i64> for LdapDerefAliases {
             3 => Ok(LdapDerefAliases::Always),
             _ => Err(()),
         }
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapModifyRequest {
+    type Error = ();
+
+    fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        value.reverse();
+
+        let dn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let changes = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Sequence as u64))
+            .and_then(|t| t.expect_constructed())
+            .and_then(|bset| {
+                let r: Result<Vec<_>, _> = bset
+                    .into_iter()
+                    .map(|bv| LdapModify::try_from(bv))
+                    .collect();
+                r.ok()
+            })
+            .ok_or(())?;
+
+        Ok(Self { dn, changes })
     }
 }
 
