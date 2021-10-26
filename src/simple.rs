@@ -5,6 +5,7 @@ pub use crate::proto::{
 };
 use std::convert::TryFrom;
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct SearchRequest {
     pub msgid: i32,
     pub base: String,
@@ -13,25 +14,41 @@ pub struct SearchRequest {
     pub attrs: Vec<String>,
 }
 
+#[derive(PartialEq, Clone)]
 pub struct SimpleBindRequest {
     pub msgid: i32,
     pub dn: String,
     pub pw: String,
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct UnbindRequest;
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct WhoamiRequest {
     pub msgid: i32,
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct DisconnectionNotice;
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum ServerOps {
     Search(SearchRequest),
     SimpleBind(SimpleBindRequest),
     Unbind(UnbindRequest),
     Whoami(WhoamiRequest),
+}
+
+// Implement by hand to avoid printing the password.
+impl std::fmt::Debug for SimpleBindRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SimpleBindRequest")
+            .field("msgid", &self.msgid)
+            .field("dn", &self.dn)
+            .field("pw", &"********")
+            .finish()
+    }
 }
 
 impl TryFrom<LdapMsg> for ServerOps {

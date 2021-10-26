@@ -100,7 +100,7 @@ pub enum LdapOp {
     ExtendedResponse(LdapExtendedResponse),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum LdapBindCred {
     Simple(String), // Sasl
 }
@@ -168,7 +168,7 @@ pub struct LdapSearchRequest {
 }
 
 // https://tools.ietf.org/html/rfc4511#section-4.1.7
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct LdapPartialAttribute {
     pub atype: String,
     pub vals: Vec<String>,
@@ -1493,6 +1493,27 @@ impl TryFrom<i64> for LdapResultCode {
             80 => Ok(LdapResultCode::Other),
             _ => Err(()),
         }
+    }
+}
+
+// Implement by hand to avoid printing the password.
+impl std::fmt::Debug for LdapBindCred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, r#"Simple("********")"#)
+    }
+}
+
+// Implement by hand to avoid printing the password.
+impl std::fmt::Debug for LdapPartialAttribute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_struct("LdapPartialAttribute");
+        f.field("atype", &self.atype);
+        if self.atype == "userPassword" && self.vals.len() == 1 {
+            f.field("vals", &vec!["********".to_string()]);
+        } else {
+            f.field("vals", &self.vals);
+        }
+        f.finish()
     }
 }
 
