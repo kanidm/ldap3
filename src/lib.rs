@@ -61,6 +61,7 @@ mod tests {
     use crate::proto::*;
     use crate::LdapCodec;
     use bytes::BytesMut;
+    use std::convert::TryInto;
     use tokio_util::codec::{Decoder, Encoder};
 
     macro_rules! do_test {
@@ -346,5 +347,32 @@ mod tests {
             .expect("failed to decode");
 
         eprintln!("{:?}", op);
+    }
+  
+    #[test]
+    fn test_ldapserver_password_extop() {
+        let mrq = LdapPasswordModifyRequest {
+            user_identity: Some("william".to_string()),
+            old_password: Some("abcd".to_string()),
+            new_password: Some("dcba".to_string()),
+        };
+
+        let ler: LdapExtendedRequest = mrq.clone().into();
+        let mrq_dec: LdapPasswordModifyRequest = (&ler).try_into().unwrap();
+        assert!(mrq == mrq_dec);
+
+        let mrs = LdapPasswordModifyResponse {
+            res: LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "uid=william,dc=exmaple,dc=com".to_string(),
+                message: "msg".to_string(),
+                referral: vec![],
+            },
+            gen_password: Some("abcd".to_string()),
+        };
+
+        let ler: LdapExtendedResponse = mrs.clone().into();
+        let mrs_dec: LdapPasswordModifyResponse = (&ler).try_into().unwrap();
+        assert!(mrs == mrs_dec);
     }
 }
