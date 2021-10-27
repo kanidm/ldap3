@@ -35,6 +35,8 @@ impl Decoder for LdapCodec {
             Move::Seek(_) => return Err(io::Error::new(io::ErrorKind::Other, "lber seek")),
             Move::Consume(s) => s,
         };
+        // helper for when we need to debug inputs.
+        // eprintln!("{:?}", buf.to_vec());
         buf.advance(size);
         // Build the LdapMsg from the Tag
         LdapMsg::try_from(msg.clone())
@@ -297,6 +299,56 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_ldapserver_codec_modify_request() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::ModifyRequest(LdapModifyRequest {
+                dn: "cn=bob,ou=people,dc=example,dc=com".to_string(),
+                changes: vec![LdapModify {
+                    operation: LdapModifyType::Replace,
+                    modification: LdapPartialAttribute {
+                        atype: "userPassword".to_string(),
+                        vals: vec!["password".to_string()],
+                    }
+                }],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_modify_response() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::ModifyResponse(LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "cn=Directory Manager".to_string(),
+                message: "It works!".to_string(),
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_modify_from_raw() {
+        use lber::Consumer;
+        use std::convert::TryFrom;
+
+        let mut parser = lber::parse::Parser::new();
+        let (size, msg) = match *parser.handle(lber::Input::Element(&
+            [48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101, 110, 44, 111, 117, 61, 80, 101, 111, 112, 108, 101, 44, 100, 99, 61, 101, 120, 97, 109, 112, 108, 101, 44, 100, 99, 61, 99, 111, 109, 48, 21, 48, 19, 10, 1, 2, 48, 14, 4, 2, 115, 110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115
+        ])) {
+            lber::ConsumerState::Done(size, ref msg) => (size, msg),
+            _ => panic!(),
+        };
+        let op = LdapMsg::try_from(msg.clone())
+            .expect("failed to decode");
+
+        eprintln!("{:?}", op);
+    }
+  
     #[test]
     fn test_ldapserver_password_extop() {
         let mrq = LdapPasswordModifyRequest {
