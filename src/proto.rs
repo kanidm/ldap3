@@ -217,7 +217,7 @@ pub enum LdapModifyType {
     Replace = 2,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct LdapExtendedRequest {
     // 0
     pub name: String,
@@ -234,7 +234,7 @@ pub struct LdapExtendedResponse {
     pub value: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct LdapPasswordModifyRequest {
     pub user_identity: Option<String>,
     pub old_password: Option<String>,
@@ -1774,6 +1774,33 @@ impl std::fmt::Debug for LdapPartialAttribute {
         } else {
             f.field("vals", &self.vals);
         }
+        f.finish()
+    }
+}
+
+// Implement by hand to avoid printing the password.
+impl std::fmt::Debug for LdapExtendedRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_struct("LdapExtendedRequest");
+        f.field("name", &self.name);
+        f.field("value", &self.value.as_ref().map(|_| "vec![...]"));
+        f.finish()
+    }
+}
+
+// Implement by hand to avoid printing the password.
+impl std::fmt::Debug for LdapPasswordModifyRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut f = f.debug_struct("LdapPasswordModifyRequest");
+        f.field("user_identity", &self.user_identity);
+        f.field(
+            "old_password",
+            &self.old_password.as_ref().map(|_| "********"),
+        );
+        f.field(
+            "new_password",
+            &self.old_password.as_ref().map(|_| "********"),
+        );
         f.finish()
     }
 }
