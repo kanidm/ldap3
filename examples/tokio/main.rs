@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate tracing;
+
 use tokio::net::{TcpListener, TcpStream};
 // use tokio::stream::StreamExt;
 use futures::SinkExt;
@@ -75,6 +78,7 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
     };
 
     while let Some(msg) = reqs.next().await {
+        debug!(?msg, "ldap message");
         let server_op = match msg
             .map_err(|_e| ())
             .and_then(|msg| ServerOps::try_from(msg))
@@ -130,12 +134,13 @@ async fn acceptor(listener: Box<TcpListener>) {
 
 #[tokio::main]
 async fn main() -> () {
+    tracing_subscriber::fmt::init();
     let addr = net::SocketAddr::from_str("127.0.0.1:12345").unwrap();
     let listener = Box::new(TcpListener::bind(&addr).await.unwrap());
 
     // Initiate the acceptor task.
     tokio::spawn(acceptor(listener));
 
-    println!("started ldap://127.0.0.1:12345 ...");
+    info!("started ldap://127.0.0.1:12345 ...");
     tokio::signal::ctrl_c().await.unwrap();
 }
