@@ -1,6 +1,6 @@
 [package]
 name = "ldap3_server"
-version = "0.1.9"
+version = "0.1.10"
 authors = ["William Brown <william@blackhats.net.au>"]
 edition = "2018"
 
