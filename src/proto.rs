@@ -13,7 +13,7 @@ use lber::{Consumer, ConsumerState, Input};
 use bytes::BytesMut;
 
 use std::convert::{From, TryFrom};
-use std::iter::once_with;
+use std::iter::{once, once_with};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapMsg {
@@ -274,7 +274,7 @@ impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
         ];
 
         let tag = Tag::Sequence(Sequence {
-            inner: inner.into_iter().filter_map(|v| v).collect(),
+            inner: inner.into_iter().flatten().collect(),
             ..Default::default()
         });
 
@@ -304,7 +304,7 @@ impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
         };
 
         let mut parser = Parser::new();
-        let (_size, msg) = match *parser.handle(Input::Element(&buf)) {
+        let (_size, msg) = match *parser.handle(Input::Element(buf)) {
             ConsumerState::Done(size, ref msg) => (size, msg),
             _ => return Err(()),
         };
@@ -351,7 +351,7 @@ impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
         })];
 
         let tag = Tag::Sequence(Sequence {
-            inner: inner.into_iter().filter_map(|v| v).collect(),
+            inner: inner.into_iter().flatten().collect(),
             ..Default::default()
         });
 
@@ -371,7 +371,7 @@ impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
 impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
     type Error = ();
     fn try_from(value: &LdapExtendedResponse) -> Result<Self, Self::Error> {
-        if !value.name.is_none() {
+        if value.name.is_some() {
             return Err(());
         }
 
@@ -382,7 +382,7 @@ impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
         };
 
         let mut parser = Parser::new();
-        let (_size, msg) = match *parser.handle(Input::Element(&buf)) {
+        let (_size, msg) = match *parser.handle(Input::Element(buf)) {
             ConsumerState::Done(size, ref msg) => (size, msg),
             _ => return Err(()),
         };
@@ -508,7 +508,7 @@ impl TryFrom<StructureTag> for LdapMsg {
             .and_then(|t| t.match_id(0))
             // So it's probably controls, decode them?
             .map(|_t| Vec::new())
-            .unwrap_or_else(|| Vec::new());
+            .unwrap_or_else(Vec::new);
 
         Ok(LdapMsg { msgid, op, ctrl })
     }
@@ -516,7 +516,7 @@ impl TryFrom<StructureTag> for LdapMsg {
 
 impl From<LdapMsg> for StructureTag {
     fn from(value: LdapMsg) -> StructureTag {
-        let LdapMsg { msgid, op, ctrl } = value;
+        let LdapMsg { msgid, op, ctrl: _ } = value;
         let seq: Vec<_> = once_with(|| {
             Some(Tag::Integer(Integer {
                 inner: msgid as i64,
@@ -524,14 +524,17 @@ impl From<LdapMsg> for StructureTag {
             }))
         })
         .chain(once_with(|| Some(op.into())))
+        /*
         .chain(once_with(|| {
-            if ctrl.len() > 0 {
-                unimplemented!();
-            } else {
+            if ctrl.is_empty() {
                 None
+            } else {
+                // unimplemented!();
             }
         }))
-        .filter_map(|v| v)
+        */
+        .chain(once(None))
+        .flatten()
         .collect();
         Tag::Sequence(Sequence {
             inner: seq,
@@ -552,45 +555,39 @@ impl TryFrom<StructureTag> for LdapOp {
         match (id, payload) {
             // https://tools.ietf.org/html/rfc4511#section-4.2
             // BindRequest
-            (0, PL::C(inner)) => LdapBindRequest::try_from(inner).map(|v| LdapOp::BindRequest(v)),
+            (0, PL::C(inner)) => LdapBindRequest::try_from(inner).map(LdapOp::BindRequest),
             // BindResponse
-            (1, PL::C(inner)) => LdapBindResponse::try_from(inner).map(|v| LdapOp::BindResponse(v)),
+            (1, PL::C(inner)) => LdapBindResponse::try_from(inner).map(LdapOp::BindResponse),
             // UnbindRequest
             (2, _) => Ok(LdapOp::UnbindRequest),
-            (3, PL::C(inner)) => {
-                LdapSearchRequest::try_from(inner).map(|v| LdapOp::SearchRequest(v))
-            }
+            (3, PL::C(inner)) => LdapSearchRequest::try_from(inner).map(LdapOp::SearchRequest),
             (4, PL::C(inner)) => {
-                LdapSearchResultEntry::try_from(inner).map(|v| LdapOp::SearchResultEntry(v))
+                LdapSearchResultEntry::try_from(inner).map(LdapOp::SearchResultEntry)
             }
             (5, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::SearchResultDone(lr))
             }
-            (6, PL::C(inner)) => {
-                LdapModifyRequest::try_from(inner).map(|v| LdapOp::ModifyRequest(v))
-            }
+            (6, PL::C(inner)) => LdapModifyRequest::try_from(inner).map(LdapOp::ModifyRequest),
             (7, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::ModifyResponse(lr))
             }
-            (8, PL::C(inner)) => LdapAddRequest::try_from(inner).map(|v| LdapOp::AddRequest(v)),
+            (8, PL::C(inner)) => LdapAddRequest::try_from(inner).map(LdapOp::AddRequest),
             (9, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::AddResponse(lr))
             }
             (10, PL::P(inner)) => String::from_utf8(inner)
                 .ok()
                 .ok_or(())
-                .map(|s| LdapOp::DelRequest(s)),
+                .map(LdapOp::DelRequest),
             (11, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::DelResponse(lr))
             }
             (16, PL::P(inner)) => ber_integer_to_i64(inner)
                 .ok_or(())
                 .map(|s| LdapOp::AbandonRequest(s as i32)),
-            (23, PL::C(inner)) => {
-                LdapExtendedRequest::try_from(inner).map(|v| LdapOp::ExtendedRequest(v))
-            }
+            (23, PL::C(inner)) => LdapExtendedRequest::try_from(inner).map(LdapOp::ExtendedRequest),
             (24, PL::C(inner)) => {
-                LdapExtendedResponse::try_from(inner).map(|v| LdapOp::ExtendedResponse(v))
+                LdapExtendedResponse::try_from(inner).map(LdapOp::ExtendedResponse)
             }
             (id, _) => {
                 println!("unknown op -> {:?}", id);
@@ -694,7 +691,7 @@ impl TryFrom<StructureTag> for LdapBindCred {
             0 => value
                 .expect_primitive()
                 .and_then(|bv| String::from_utf8(bv).ok())
-                .map(|pw| LdapBindCred::Simple(pw))
+                .map(LdapBindCred::Simple)
                 .ok_or(()),
             _ => Err(()),
         }
@@ -784,7 +781,7 @@ impl LdapResult {
             }))
         }))
         .chain(once_with(move || {
-            if referral.len() > 0 {
+            if !referral.is_empty() {
                 let inner = referral
                     .iter()
                     .map(|s| {
@@ -810,7 +807,7 @@ impl LdapResult {
 impl From<LdapResult> for Vec<Tag> {
     fn from(value: LdapResult) -> Vec<Tag> {
         // get all the values from the LdapResult
-        value.into_tag_iter().filter_map(|s| s).collect()
+        value.into_tag_iter().flatten().collect()
     }
 }
 
@@ -826,7 +823,7 @@ impl LdapResult {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .ok_or(())
-            .and_then(|i| LdapResultCode::try_from(i))?;
+            .and_then(LdapResultCode::try_from)?;
 
         let matcheddn = value
             .pop()
@@ -915,7 +912,7 @@ impl From<LdapBindResponse> for Vec<Tag> {
                     })
                 })
             }))
-            .filter_map(|s| s)
+            .flatten()
             .collect()
     }
 }
@@ -931,14 +928,12 @@ impl TryFrom<StructureTag> for LdapFilter {
         match value.id {
             0 => {
                 let inner = value.expect_constructed().ok_or(())?;
-                let vf: Result<Vec<_>, _> =
-                    inner.into_iter().map(|v| LdapFilter::try_from(v)).collect();
+                let vf: Result<Vec<_>, _> = inner.into_iter().map(LdapFilter::try_from).collect();
                 Ok(LdapFilter::And(vf?))
             }
             1 => {
                 let inner = value.expect_constructed().ok_or(())?;
-                let vf: Result<Vec<_>, _> =
-                    inner.into_iter().map(|v| LdapFilter::try_from(v)).collect();
+                let vf: Result<Vec<_>, _> = inner.into_iter().map(LdapFilter::try_from).collect();
                 Ok(LdapFilter::Or(vf?))
             }
             2 => {
@@ -1141,7 +1136,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .ok_or(())
-            .and_then(|i| LdapSearchScope::try_from(i))?;
+            .and_then(LdapSearchScope::try_from)?;
         let aliases = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
@@ -1149,7 +1144,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .ok_or(())
-            .and_then(|i| LdapDerefAliases::try_from(i))?;
+            .and_then(LdapDerefAliases::try_from)?;
         let sizelimit = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
@@ -1284,7 +1279,7 @@ impl TryFrom<StructureTag> for LdapModify {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .ok_or(())
-            .and_then(|i| LdapModifyType::try_from(i))?;
+            .and_then(LdapModifyType::try_from)?;
 
         let modification = inner
             .pop()
@@ -1364,7 +1359,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchResultEntry {
             .and_then(|bset| {
                 let r: Result<Vec<_>, _> = bset
                     .into_iter()
-                    .map(|bv| LdapPartialAttribute::try_from(bv))
+                    .map(LdapPartialAttribute::try_from)
                     .collect();
                 r.ok()
             })
@@ -1463,7 +1458,7 @@ impl From<LdapExtendedRequest> for Vec<Tag> {
                     })
                 })
             })
-            .filter_map(|s| s),
+            .flatten(),
         )
         .collect()
     }
@@ -1518,7 +1513,7 @@ impl From<LdapExtendedResponse> for Vec<Tag> {
                     })
                 })
             }))
-            .filter_map(|s| s)
+            .flatten()
             .collect()
     }
 }
@@ -1533,7 +1528,7 @@ impl LdapExtendedResponse {
                 referral: Vec::new(),
             },
             name: name.map(|v| v.to_string()),
-            value: value.map(|v| Vec::from(v)),
+            value: value.map(Vec::from),
         }
     }
 
@@ -1611,10 +1606,7 @@ impl TryFrom<Vec<StructureTag>> for LdapModifyRequest {
             .and_then(|t| t.match_id(Types::Sequence as u64))
             .and_then(|t| t.expect_constructed())
             .and_then(|bset| {
-                let r: Result<Vec<_>, _> = bset
-                    .into_iter()
-                    .map(|bv| LdapModify::try_from(bv))
-                    .collect();
+                let r: Result<Vec<_>, _> = bset.into_iter().map(LdapModify::try_from).collect();
                 r.ok()
             })
             .ok_or(())?;
@@ -1643,10 +1635,7 @@ impl TryFrom<Vec<StructureTag>> for LdapAddRequest {
             .and_then(|t| t.match_id(Types::Sequence as u64))
             .and_then(|t| t.expect_constructed())
             .and_then(|bset| {
-                let r: Result<Vec<_>, _> = bset
-                    .into_iter()
-                    .map(|bv| LdapAttribute::try_from(bv))
-                    .collect();
+                let r: Result<Vec<_>, _> = bset.into_iter().map(LdapAttribute::try_from).collect();
                 r.ok()
             })
             .ok_or(())?;
@@ -1806,10 +1795,7 @@ impl std::fmt::Debug for LdapPasswordModifyRequest {
 }
 
 fn ber_bool_to_bool(bv: Vec<u8>) -> Option<bool> {
-    bv.get(0).map(|v| match v {
-        0 => false,
-        _ => true,
-    })
+    bv.get(0).map(|v| !matches!(v, 0))
 }
 
 fn ber_integer_to_i64(bv: Vec<u8>) -> Option<i64> {
@@ -1821,8 +1807,6 @@ fn ber_integer_to_i64(bv: Vec<u8>) -> Option<i64> {
     } else {
         8 - bv.len()
     };
-    for i in 0..bv.len() {
-        raw[base + i] = bv[i];
-    }
+    raw[base..(bv.len() + base)].clone_from_slice(&bv[..]);
     Some(i64::from_be_bytes(raw))
 }

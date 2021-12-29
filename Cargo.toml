@@ -2,7 +2,7 @@
 name = "ldap3_server"
 version = "0.1.10"
 authors = ["William Brown <william@blackhats.net.au>"]
-edition = "2018"
+edition = "2021"
 
 description = "LDAP Server Codec for Tokio"
 repository = "https://github.com/kanidm/ldap3_server"
