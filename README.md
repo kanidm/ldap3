@@ -1,4 +1,4 @@
-# Ldap3 Server (Protocol Bindings)
+# Ldap3 Protocol Bindings
 
 This is a work-in-progress of LDAP3 server and client capable protocol bindings.
 
