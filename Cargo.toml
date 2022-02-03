@@ -1,13 +1,13 @@
 [package]
-name = "ldap3_server"
+name = "ldap3_proto"
 version = "0.1.11"
 authors = ["William Brown <william@blackhats.net.au>"]
 edition = "2021"
 
-description = "LDAP Server Codec for Tokio"
+description = "LDAP Protocol bindings for Tokio"
 repository = "https://github.com/kanidm/ldap3_server"
 readme = "README.md"
-keywords = ["ldap", "authentication"]
+keywords = ["ldap", "protocol", "authentication", "chaos"]
 categories = ["authentication"]
 license = "MPL-2.0"
 

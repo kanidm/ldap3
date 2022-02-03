@@ -10,8 +10,8 @@ use std::net;
 use std::str::FromStr;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use ldap3_server::simple::*;
-use ldap3_server::LdapCodec;
+use ldap3_proto::simple::*;
+use ldap3_proto::LdapCodec;
 
 pub struct LdapSession {
     dn: String,

@@ -1,4 +1,3 @@
-use ldap3_server::LdapCodec;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -9,7 +8,8 @@ use tokio_util::codec::Framed;
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 
-use ldap3_server::proto::*;
+use ldap3_proto::proto::*;
+use ldap3_proto::LdapCodec;
 
 use openssl::ssl::{Ssl, SslConnector, SslMethod, SslVerifyMode};
 use tokio_openssl::SslStream;
