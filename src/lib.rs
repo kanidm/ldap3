@@ -40,7 +40,11 @@ impl Decoder for LdapCodec {
         };
         // helper for when we need to debug inputs.
         // eprintln!("{:?}", buf.to_vec());
-        buf.advance(size);
+        if size == buf.len() {
+            buf.clear();
+        } else {
+            buf.advance(size);
+        }
         // Build the LdapMsg from the Tag
         LdapMsg::try_from(msg.clone())
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "ldapmsg invalid"))
