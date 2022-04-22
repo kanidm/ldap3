@@ -430,13 +430,17 @@ impl LdapMsg {
     pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, ()> {
         let mut parser = lber::parse::Parser::new();
         let (taken, msgid_tag) = match *parser.handle(lber::Input::Element(bytes)) {
-            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => (size, Some(msg.clone())),
+            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => {
+                (size, Some(msg.clone()))
+            }
             _ => return Err(()),
         };
 
         let (_, r_bytes) = bytes.split_at(taken);
         let (taken, op_tag) = match *parser.handle(lber::Input::Element(r_bytes)) {
-            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => (size, Some(msg.clone())),
+            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => {
+                (size, Some(msg.clone()))
+            }
             _ => return Err(()),
         };
 
@@ -445,7 +449,9 @@ impl LdapMsg {
             (0, None)
         } else {
             match *parser.handle(lber::Input::Element(r_bytes)) {
-                lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => (size, Some(msg.clone())),
+                lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => {
+                    (size, Some(msg.clone()))
+                }
                 _ => return Err(()),
             }
         };
