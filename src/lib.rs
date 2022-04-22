@@ -1,6 +1,9 @@
 #![deny(warnings)]
 #![warn(unused_extern_crates)]
 
+#[macro_use]
+extern crate tracing;
+
 pub mod proto;
 pub mod simple;
 
@@ -39,7 +42,7 @@ impl Decoder for LdapCodec {
             Move::Consume(s) => s,
         };
         // helper for when we need to debug inputs.
-        // eprintln!("{:?}", buf.to_vec());
+        trace!("{:?}", buf.to_vec());
         if size == buf.len() {
             buf.clear();
         } else {
@@ -76,6 +79,7 @@ mod tests {
             let mut buf = BytesMut::new();
             let mut server_codec = LdapCodec;
             assert!(server_codec.encode($req.clone(), &mut buf).is_ok());
+            println!("buf {:x}", buf);
             let res = server_codec.decode(&mut buf).expect("failed to decode");
             let msg = res.expect("None found?");
             println!("{:?}", msg);
@@ -126,7 +130,7 @@ mod tests {
         do_test!(LdapMsg {
             msgid: 2_147_483_646,
             op: LdapOp::SearchRequest(LdapSearchRequest {
-                base: "dc=example,dc=com".to_string(),
+                base: "dc=example,dc=comaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
                 scope: LdapSearchScope::Base,
                 aliases: LdapDerefAliases::Never,
                 sizelimit: 0,

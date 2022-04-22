@@ -426,12 +426,59 @@ impl LdapMsg {
             ctrl: Vec::new(),
         }
     }
+
+    pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, ()> {
+        let mut parser = lber::parse::Parser::new();
+        let (taken, msgid_tag) = match *parser.handle(lber::Input::Element(bytes)) {
+            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => (size, Some(msg.clone())),
+            _ => return Err(()),
+        };
+
+        let (_, r_bytes) = bytes.split_at(taken);
+        let (taken, op_tag) = match *parser.handle(lber::Input::Element(r_bytes)) {
+            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => (size, Some(msg.clone())),
+            _ => return Err(()),
+        };
+
+        let (_, r_bytes) = r_bytes.split_at(taken);
+        let (_taken, ctrl_tag) = if r_bytes.is_empty() {
+            (0, None)
+        } else {
+            match *parser.handle(lber::Input::Element(r_bytes)) {
+                lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => (size, Some(msg.clone())),
+                _ => return Err(()),
+            }
+        };
+
+        // The first item should be the messageId
+        let msgid = msgid_tag
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Integer as u64))
+            // Get the raw bytes
+            .and_then(|t| t.expect_primitive())
+            .and_then(ber_integer_to_i64)
+            // Trunc to i32.
+            .map(|i| i as i32)
+            .ok_or(())?;
+
+        let op = op_tag.ok_or(())?;
+        let op = LdapOp::try_from(op)?;
+
+        let ctrl = ctrl_tag
+            .and_then(|t| t.match_class(TagClass::Context))
+            .and_then(|t| t.match_id(0))
+            // So it's probably controls, decode them?
+            .map(|_t| Vec::new())
+            .unwrap_or_else(Vec::new);
+
+        Ok(LdapMsg { msgid, op, ctrl })
+    }
 }
 
 impl TryFrom<StructureTag> for LdapMsg {
     type Error = ();
 
-    /// https://tools.ietf.org/html/rfc4511#section-4.1.1
+    /// <https://tools.ietf.org/html/rfc4511#section-4.1.1>
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         /*
          * LDAPMessage ::= SEQUENCE {
@@ -922,17 +969,22 @@ impl TryFrom<StructureTag> for LdapFilter {
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         if value.class != TagClass::Context {
+            trace!("Invalid tagclass");
             return Err(());
         };
 
         match value.id {
             0 => {
-                let inner = value.expect_constructed().ok_or(())?;
+                let inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid and filter");
+                })?;
                 let vf: Result<Vec<_>, _> = inner.into_iter().map(LdapFilter::try_from).collect();
                 Ok(LdapFilter::And(vf?))
             }
             1 => {
-                let inner = value.expect_constructed().ok_or(())?;
+                let inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid or filter");
+                })?;
                 let vf: Result<Vec<_>, _> = inner.into_iter().map(LdapFilter::try_from).collect();
                 Ok(LdapFilter::Or(vf?))
             }
@@ -940,12 +992,16 @@ impl TryFrom<StructureTag> for LdapFilter {
                 let inner = value
                     .expect_constructed()
                     .and_then(|mut i| i.pop())
-                    .ok_or(())?;
+                    .ok_or_else(|| {
+                        trace!("invalid not filter");
+                    })?;
                 let inner_filt = LdapFilter::try_from(inner)?;
                 Ok(LdapFilter::Not(Box::new(inner_filt)))
             }
             3 => {
-                let mut inner = value.expect_constructed().ok_or(())?;
+                let mut inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid eq filter");
+                })?;
                 inner.reverse();
 
                 let a = inner
@@ -953,21 +1009,45 @@ impl TryFrom<StructureTag> for LdapFilter {
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .and_then(|bv| String::from_utf8(bv).ok())
-                    .ok_or(())?;
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid attribute in eq filter");
+                    })?;
 
                 let v = inner
                     .pop()
                     .and_then(|t| t.match_class(TagClass::Universal))
-                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| {
+                        if cfg!(feature = "strict") {
+                            t.match_id(Types::OctetString as u64)
+                        } else {
+                            Some(t)
+                        }
+                    })
                     .and_then(|t| t.expect_primitive())
-                    .and_then(|bv| String::from_utf8(bv).ok())
-                    .ok_or(())?;
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid value in eq filter");
+                    })?;
 
                 Ok(LdapFilter::Equality(a, v))
             }
             4 => {
-                let mut inner = value.expect_constructed().ok_or(())?;
+                let mut inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid sub filter");
+                })?;
                 inner.reverse();
 
                 let ty = inner
@@ -1029,10 +1109,15 @@ impl TryFrom<StructureTag> for LdapFilter {
                 let a = value
                     .expect_primitive()
                     .and_then(|bv| String::from_utf8(bv).ok())
-                    .ok_or(())?;
+                    .ok_or_else(|| {
+                        trace!("invalid pres filter");
+                    })?;
                 Ok(LdapFilter::Present(a))
             }
-            _ => Err(()),
+            _ => {
+                trace!("invalid value tag");
+                Err(())
+            }
         }
     }
 }
@@ -1128,14 +1213,25 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or_else(|| {
+                trace!("invalid basedn");
+            })?;
         let scope = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
-            .and_then(|t| t.match_id(Types::Enumerated as u64))
+            .and_then(|t|
+                // Some non-complient clients will not tag this as enum.
+                if cfg!(feature = "strict") {
+                    t.match_id(Types::Enumerated as u64)
+                } else {
+                    Some(t)
+                }
+            )
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
-            .ok_or(())
+            .ok_or_else(|| {
+                trace!("invalid scope")}
+            )
             .and_then(LdapSearchScope::try_from)?;
         let aliases = value
             .pop()
@@ -1143,7 +1239,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.match_id(Types::Enumerated as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
-            .ok_or(())
+            .ok_or_else(|| trace!("invalid aliases"))
             .and_then(LdapDerefAliases::try_from)?;
         let sizelimit = value
             .pop()
@@ -1152,7 +1248,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .map(|v| v as i32)
-            .ok_or(())?;
+            .ok_or_else(|| trace!("invalid sizelimit"))?;
         let timelimit = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
@@ -1160,23 +1256,39 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .map(|v| v as i32)
-            .ok_or(())?;
+            .ok_or_else(|| trace!("invalid timelimit"))?;
         let typesonly = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::Boolean as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_bool_to_bool)
-            .ok_or(())?;
+            .ok_or_else(|| trace!("invalid typesonly"))?;
         let filter = value
             .pop()
             .and_then(|t| LdapFilter::try_from(t).ok())
-            .ok_or(())?;
+            .ok_or_else(|| trace!("invalid filter"))?;
         let attrs = value
             .pop()
+            .map(|attrs| {
+                trace!(?attrs);
+                attrs
+            })
             .and_then(|t| t.match_class(TagClass::Universal))
-            .and_then(|t| t.match_id(Types::Sequence as u64))
-            .and_then(|t| t.expect_constructed())
+            .and_then(|t| {
+                if cfg!(feature = "strict") {
+                    t.match_id(Types::Sequence as u64)
+                } else {
+                    Some(t)
+                }
+            })
+            .and_then(|t| {
+                if cfg!(feature = "strict") {
+                    t.expect_constructed()
+                } else {
+                    Some(Vec::new())
+                }
+            })
             .and_then(|vs| {
                 let r: Option<Vec<_>> = vs
                     .into_iter()
@@ -1189,7 +1301,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
                     .collect();
                 r
             })
-            .ok_or(())?;
+            .ok_or_else(|| trace!("invalid attributes"))?;
 
         Ok(LdapSearchRequest {
             base,
