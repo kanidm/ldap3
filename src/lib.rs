@@ -174,15 +174,15 @@ mod tests {
                 attributes: vec![
                     LdapPartialAttribute {
                         atype: "cn".to_string(),
-                        vals: vec!["demo".to_string(),]
+                        vals: vec![b"demo".to_vec()]
                     },
                     LdapPartialAttribute {
                         atype: "dn".to_string(),
-                        vals: vec!["cn=demo,dc=example,dc=com".to_string(),]
+                        vals: vec![b"cn=demo,dc=example,dc=com".to_vec()]
                     },
                     LdapPartialAttribute {
                         atype: "objectClass".to_string(),
-                        vals: vec!["cursed".to_string(),]
+                        vals: vec![b"cursed".to_vec()]
                     },
                 ]
             }),
@@ -257,7 +257,7 @@ mod tests {
                 dn: "dc=example,dc=com".to_string(),
                 attributes: vec![LdapPartialAttribute {
                     atype: "objectClass".to_string(),
-                    vals: vec!["top".to_string(), "posixAccount".to_string()]
+                    vals: vec![b"top".to_vec(), b"posixAccount".to_vec()]
                 }],
             }),
             ctrl: vec![],
@@ -320,7 +320,7 @@ mod tests {
                     operation: LdapModifyType::Replace,
                     modification: LdapPartialAttribute {
                         atype: "userPassword".to_string(),
-                        vals: vec!["password".to_string()],
+                        vals: vec![b"password".to_vec()],
                     }
                 }],
             }),

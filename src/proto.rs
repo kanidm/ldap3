@@ -178,7 +178,7 @@ pub struct LdapSearchRequest {
 #[derive(Clone, PartialEq)]
 pub struct LdapPartialAttribute {
     pub atype: String,
-    pub vals: Vec<String>,
+    pub vals: Vec<Vec<u8>>,
 }
 
 // A PartialAttribute allows zero values, while
@@ -1444,7 +1444,6 @@ impl TryFrom<StructureTag> for LdapPartialAttribute {
                         bv.match_class(TagClass::Universal)
                             .and_then(|t| t.match_id(Types::OctetString as u64))
                             .and_then(|t| t.expect_primitive())
-                            .and_then(|bv| String::from_utf8(bv).ok())
                     })
                     .collect();
                 r
@@ -1499,9 +1498,9 @@ impl From<LdapPartialAttribute> for Tag {
                 Tag::Set(Set {
                     inner: vals
                         .into_iter()
-                        .map(|v| {
+                        .map(|inner| {
                             Tag::OctetString(OctetString {
-                                inner: Vec::from(v),
+                                inner,
                                 ..Default::default()
                             })
                         })

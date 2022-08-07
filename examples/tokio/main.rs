@@ -37,11 +37,11 @@ impl LdapSession {
                 attributes: vec![
                     LdapPartialAttribute {
                         atype: "objectClass".to_string(),
-                        vals: vec!["cursed".to_string()],
+                        vals: vec![b"cursed".to_vec()],
                     },
                     LdapPartialAttribute {
                         atype: "cn".to_string(),
-                        vals: vec!["hello".to_string()],
+                        vals: vec![b"hello".to_vec()],
                     },
                 ],
             }),
@@ -50,11 +50,11 @@ impl LdapSession {
                 attributes: vec![
                     LdapPartialAttribute {
                         atype: "objectClass".to_string(),
-                        vals: vec!["cursed".to_string()],
+                        vals: vec![b"cursed".to_vec()],
                     },
                     LdapPartialAttribute {
                         atype: "cn".to_string(),
-                        vals: vec!["world".to_string()],
+                        vals: vec![b"world".to_vec()],
                     },
                 ],
             }),
