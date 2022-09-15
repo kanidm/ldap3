@@ -1,6 +1,6 @@
 [package]
 name = "ldap3_proto"
-version = "0.2.3"
+version = "0.3.0"
 authors = ["William Brown <william@blackhats.net.au>"]
 edition = "2021"
 
@@ -22,6 +22,7 @@ lber = "^0.3.0"
 tokio-util = { version = "^0.7.1", features = ["codec"] }
 bytes = "^1.1.0"
 tracing = "^0.1.34"
+uuid = "^1.1.2"
 
 [dev-dependencies]
 tracing-subscriber = "^0.3.11"

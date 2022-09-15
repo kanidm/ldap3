@@ -76,13 +76,14 @@ mod tests {
 
     macro_rules! do_test {
         ($req:expr) => {{
+            let _ = tracing_subscriber::fmt::try_init();
             let mut buf = BytesMut::new();
             let mut server_codec = LdapCodec;
             assert!(server_codec.encode($req.clone(), &mut buf).is_ok());
-            println!("buf {:x}", buf);
+            debug!("buf {:x}", buf);
             let res = server_codec.decode(&mut buf).expect("failed to decode");
             let msg = res.expect("None found?");
-            println!("{:?}", msg);
+            debug!("{:?}", msg);
             assert!($req == msg)
         }};
     }
@@ -174,15 +175,15 @@ mod tests {
                 attributes: vec![
                     LdapPartialAttribute {
                         atype: "cn".to_string(),
-                        vals: vec!["demo".to_string(),]
+                        vals: vec!["demo".as_bytes().to_vec(),]
                     },
                     LdapPartialAttribute {
                         atype: "dn".to_string(),
-                        vals: vec!["cn=demo,dc=example,dc=com".to_string(),]
+                        vals: vec!["cn=demo,dc=example,dc=com".as_bytes().to_vec(),]
                     },
                     LdapPartialAttribute {
                         atype: "objectClass".to_string(),
-                        vals: vec!["cursed".to_string(),]
+                        vals: vec!["cursed".as_bytes().to_vec(),]
                     },
                 ]
             }),
@@ -257,7 +258,10 @@ mod tests {
                 dn: "dc=example,dc=com".to_string(),
                 attributes: vec![LdapPartialAttribute {
                     atype: "objectClass".to_string(),
-                    vals: vec!["top".to_string(), "posixAccount".to_string()]
+                    vals: vec![
+                        "top".as_bytes().to_vec(),
+                        "posixAccount".as_bytes().to_vec()
+                    ]
                 }],
             }),
             ctrl: vec![],
@@ -320,7 +324,7 @@ mod tests {
                     operation: LdapModifyType::Replace,
                     modification: LdapPartialAttribute {
                         atype: "userPassword".to_string(),
-                        vals: vec!["password".to_string()],
+                        vals: vec!["password".as_bytes().to_vec()],
                     }
                 }],
             }),
@@ -363,6 +367,26 @@ mod tests {
     }
 
     #[test]
+    fn test_syncrepl_result_from_raw() {
+        use lber::Consumer;
+        use std::convert::TryFrom;
+
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut parser = lber::parse::Parser::new();
+        let (_size, msg) = match *parser.handle(lber::Input::Element(&[
+            48, 35, 2, 1, 2, 101, 30, 10, 2, 16, 0, 4, 0, 4, 22, 73, 110, 118, 97, 108, 105, 100,
+            32, 115, 101, 115, 115, 105, 111, 110, 32, 99, 111, 111, 107, 105, 101,
+        ])) {
+            lber::ConsumerState::Done(size, ref msg) => (size, msg),
+            _ => panic!(),
+        };
+        let op = LdapMsg::try_from(msg.clone()).expect("failed to decode");
+
+        eprintln!("{:?}", op);
+    }
+
+    #[test]
     fn test_ldapserver_password_extop() {
         let mrq = LdapPasswordModifyRequest {
             user_identity: Some("william".to_string()),
@@ -387,5 +411,34 @@ mod tests {
         let ler: LdapExtendedResponse = mrs.clone().into();
         let mrs_dec: LdapPasswordModifyResponse = (&ler).try_into().unwrap();
         assert!(mrs == mrs_dec);
+    }
+
+    #[test]
+    fn test_ldapserver_search_with_syncrepl_request() {
+        // openldap
+        // ctrl_tag=Some(StructureTag { class: Universal, id: 16, payload: C(
+        // inner=[StructureTag { class: Context, id: 0, payload: C([StructureTag { class: Universal, id: 4, payload: P([49, 46, 51, 46, 54, 46, 49, 46, 52, 46, 49, 46, 52, 50, 48, 51, 46, 49, 46, 57, 46, 49, 46, 49]) }, StructureTag { class: Universal, id: 1, payload: P([0]) }, StructureTag { class: Universal, id: 4, payload: P([48, 3, 10, 1, 1]) }]) }]) })
+
+        // inner=[StructureTag { class: Universal, id: 16, payload: C([StructureTag { class: Universal, id: 4, payload: P([49, 46, 51, 46, 54, 46, 49, 46, 52, 46, 49, 46, 52, 50, 48, 51, 46, 49, 46, 57, 46, 49, 46, 49]) }, StructureTag { class: Universal, id: 4, payload: P([48, 8, 10, 1, 1, 4, 3, 102, 111, 111]) }]) }]
+
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::SyncRequest {
+                criticality: false,
+                mode: SyncRequestMode::RefreshOnly,
+                cookie: None,
+                reload_hint: false
+            }],
+        });
     }
 }

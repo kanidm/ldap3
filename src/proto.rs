@@ -11,6 +11,7 @@ use lber::parse::Parser;
 use lber::{Consumer, ConsumerState, Input};
 
 use bytes::BytesMut;
+use uuid::Uuid;
 
 use std::convert::{From, TryFrom};
 use std::iter::{once, once_with};
@@ -19,7 +20,42 @@ use std::iter::{once, once_with};
 pub struct LdapMsg {
     pub msgid: i32,
     pub op: LdapOp,
-    pub ctrl: Vec<()>,
+    pub ctrl: Vec<LdapControl>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(i64)]
+pub enum SyncRequestMode {
+    RefreshOnly = 1,
+    RefreshAndPersist = 3,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(i64)]
+pub enum SyncStateValue {
+    Present = 0,
+    Add = 1,
+    Modify = 2,
+    Delete = 3,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LdapControl {
+    SyncRequest {
+        criticality: bool,
+        mode: SyncRequestMode,
+        cookie: Option<Vec<u8>>,
+        reload_hint: bool,
+    },
+    SyncState {
+        state: SyncStateValue,
+        entry_uuid: Uuid,
+        cookie: Option<Vec<u8>>,
+    },
+    SyncDone {
+        cookie: Option<Vec<u8>>,
+        refresh_deletes: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +108,7 @@ pub enum LdapResultCode {
     AffectsMultipleDSAs = 71,
     // 72 - 79
     Other = 80,
+    EsyncRefreshRequired = 4096,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +142,8 @@ pub enum LdapOp {
     // https://tools.ietf.org/html/rfc4511#section-4.12
     ExtendedRequest(LdapExtendedRequest),
     ExtendedResponse(LdapExtendedResponse),
+    // https://www.rfc-editor.org/rfc/rfc4511#section-4.13
+    IntermediateResponse(LdapIntermediateResponse),
 }
 
 #[derive(Clone, PartialEq)]
@@ -178,7 +217,7 @@ pub struct LdapSearchRequest {
 #[derive(Clone, PartialEq)]
 pub struct LdapPartialAttribute {
     pub atype: String,
-    pub vals: Vec<String>,
+    pub vals: Vec<Vec<u8>>,
 }
 
 // A PartialAttribute allows zero values, while
@@ -232,6 +271,63 @@ pub struct LdapExtendedResponse {
     pub name: Option<String>,
     // 11
     pub value: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LdapIntermediateResponse {
+    SyncInfoNewCookie {
+        cookie: Vec<u8>,
+    },
+    SyncInfoRefreshDelete {
+        cookie: Option<Vec<u8>>,
+        done: bool,
+    },
+    SyncInfoRefreshPresent {
+        cookie: Option<Vec<u8>>,
+        done: bool,
+    },
+    SyncInfoIdSet {
+        cookie: Option<Vec<u8>>,
+        refresh_deletes: bool,
+        syncuuids: Vec<Uuid>,
+    },
+    Raw {
+        name: Option<String>,
+        value: Option<Vec<u8>>,
+    },
+}
+
+#[derive(Clone, PartialEq)]
+pub struct LdapWhoamiRequest {}
+
+impl From<LdapWhoamiRequest> for LdapExtendedRequest {
+    fn from(_value: LdapWhoamiRequest) -> LdapExtendedRequest {
+        LdapExtendedRequest {
+            name: "1.3.6.1.4.1.4203.1.11.3".to_string(),
+            value: None,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct LdapWhoamiResponse {
+    pub dn: Option<String>,
+}
+
+impl TryFrom<&LdapExtendedResponse> for LdapWhoamiResponse {
+    type Error = ();
+    fn try_from(value: &LdapExtendedResponse) -> Result<Self, Self::Error> {
+        if value.name.is_some() {
+            return Err(());
+        }
+
+        let dn = value
+            .value
+            .as_ref()
+            .and_then(|bv| String::from_utf8(bv.to_vec()).ok());
+
+        Ok(LdapWhoamiResponse { dn })
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -427,6 +523,10 @@ impl LdapMsg {
         }
     }
 
+    pub fn new_with_ctrls(msgid: i32, op: LdapOp, ctrl: Vec<LdapControl>) -> Self {
+        LdapMsg { msgid, op, ctrl }
+    }
+
     pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, ()> {
         let mut parser = lber::parse::Parser::new();
         let (taken, msgid_tag) = match *parser.handle(lber::Input::Element(bytes)) {
@@ -521,7 +621,8 @@ impl TryFrom<StructureTag> for LdapMsg {
         let mut seq = value
             .match_id(Types::Sequence as u64)
             .and_then(|t| t.expect_constructed())
-            .ok_or(())?;
+            .ok_or(())
+            .map_err(|_| error!("Message is not constructed"))?;
 
         // seq is now a vec of the inner elements.
         let (msgid_tag, op_tag, ctrl_tag) = match seq.len() {
@@ -539,8 +640,13 @@ impl TryFrom<StructureTag> for LdapMsg {
                 let m = seq.pop();
                 (m, o, c)
             }
-            _ => return Err(()),
+            _ => {
+                error!("Invalid ldapmsg sequence length");
+                return Err(());
+            }
         };
+
+        trace!(?msgid_tag, ?op_tag, ?ctrl_tag);
 
         // The first item should be the messageId
         let msgid = msgid_tag
@@ -551,16 +657,36 @@ impl TryFrom<StructureTag> for LdapMsg {
             .and_then(ber_integer_to_i64)
             // Trunc to i32.
             .map(|i| i as i32)
-            .ok_or(())?;
+            .ok_or_else(|| {
+                error!("Invalid msgid");
+                ()
+            })?;
 
-        let op = op_tag.ok_or(())?;
+        let op = op_tag.ok_or_else(|| {
+            error!("No ldap op present");
+            ()
+        })?;
         let op = LdapOp::try_from(op)?;
 
         let ctrl = ctrl_tag
             .and_then(|t| t.match_class(TagClass::Context))
             .and_then(|t| t.match_id(0))
             // So it's probably controls, decode them?
-            .map(|_t| Vec::new())
+            .and_then(|t| t.expect_constructed())
+            .map(|inner| {
+                // This should now be a slice/array.
+                inner
+                    .into_iter()
+                    .filter_map(|t| {
+                        TryInto::<LdapControl>::try_into(t)
+                            .map_err(|e| {
+                                error!("Failed to parse ldapcontrol");
+                                e
+                            })
+                            .ok()
+                    })
+                    .collect()
+            })
             .unwrap_or_else(Vec::new);
 
         Ok(LdapMsg { msgid, op, ctrl })
@@ -569,7 +695,7 @@ impl TryFrom<StructureTag> for LdapMsg {
 
 impl From<LdapMsg> for StructureTag {
     fn from(value: LdapMsg) -> StructureTag {
-        let LdapMsg { msgid, op, ctrl: _ } = value;
+        let LdapMsg { msgid, op, ctrl } = value;
         let seq: Vec<_> = once_with(|| {
             Some(Tag::Integer(Integer {
                 inner: msgid as i64,
@@ -577,15 +703,19 @@ impl From<LdapMsg> for StructureTag {
             }))
         })
         .chain(once_with(|| Some(op.into())))
-        /*
         .chain(once_with(|| {
             if ctrl.is_empty() {
                 None
             } else {
-                // unimplemented!();
+                let inner = ctrl.into_iter().map(|c| c.into()).collect();
+                Some(Tag::Sequence(Sequence {
+                    class: TagClass::Context,
+                    id: 0,
+                    inner,
+                    // ..Default::default()
+                }))
             }
         }))
-        */
         .chain(once(None))
         .flatten()
         .collect();
@@ -603,6 +733,7 @@ impl TryFrom<StructureTag> for LdapOp {
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         let StructureTag { class, id, payload } = value;
         if class != TagClass::Application {
+            error!("ldap op is not tagged as application");
             return Err(());
         }
         match (id, payload) {
@@ -641,6 +772,9 @@ impl TryFrom<StructureTag> for LdapOp {
             (23, PL::C(inner)) => LdapExtendedRequest::try_from(inner).map(LdapOp::ExtendedRequest),
             (24, PL::C(inner)) => {
                 LdapExtendedResponse::try_from(inner).map(LdapOp::ExtendedResponse)
+            }
+            (25, PL::C(inner)) => {
+                LdapIntermediateResponse::try_from(inner).map(LdapOp::IntermediateResponse)
             }
             (id, _) => {
                 println!("unknown op -> {:?}", id);
@@ -728,7 +862,354 @@ impl From<LdapOp> for Tag {
                 id: 24,
                 inner: ler.into(),
             }),
+            LdapOp::IntermediateResponse(lir) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 25,
+                inner: lir.into(),
+            }),
         }
+    }
+}
+
+impl TryFrom<StructureTag> for LdapControl {
+    type Error = ();
+
+    fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
+        let mut seq = value
+            .match_id(Types::Sequence as u64)
+            .and_then(|t| t.expect_constructed())
+            .ok_or(())?;
+
+        // We destructure in reverse order due to how vec in rust
+        // works.
+        let (oid_tag, criticality_tag, value_tag) = match seq.len() {
+            1 => {
+                let v = None;
+                let c = None;
+                let o = seq.pop();
+                (o, c, v)
+            }
+            2 => {
+                let v = seq.pop();
+                let c = None;
+                let o = seq.pop();
+                (o, c, v)
+            }
+            3 => {
+                let v = seq.pop();
+                let c = seq.pop();
+                let o = seq.pop();
+                (o, c, v)
+            }
+            _ => return Err(()),
+        };
+
+        // trace!(?oid_tag, ?criticality_tag, ?value_tag);
+
+        // We need to know what the oid is first.
+        let oid = oid_tag
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        match oid.as_str() {
+            "1.3.6.1.4.1.4203.1.9.1.1" => {
+                // parse as sync req
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                let value_ber = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(())?;
+
+                let mut parser = Parser::new();
+                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
+                    ConsumerState::Done(size, ref msg) => (size, msg),
+                    _ => return Err(()),
+                };
+
+                let mut value = value.clone().expect_constructed().ok_or(())?;
+
+                value.reverse();
+
+                let mode = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Enumerated as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_integer_to_i64)
+                    .and_then(|v| match v {
+                        1 => Some(SyncRequestMode::RefreshOnly),
+                        3 => Some(SyncRequestMode::RefreshAndPersist),
+                        _ => None,
+                    })
+                    .ok_or(())?;
+
+                let cookie = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive());
+
+                let reload_hint = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                Ok(LdapControl::SyncRequest {
+                    criticality,
+                    mode,
+                    cookie,
+                    reload_hint,
+                })
+            }
+            "1.3.6.1.4.1.4203.1.9.1.2" => {
+                // parse as sync state control
+
+                //criticality is ignored.
+
+                let value_ber = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(())?;
+
+                let mut parser = Parser::new();
+                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
+                    ConsumerState::Done(size, ref msg) => (size, msg),
+                    _ => return Err(()),
+                };
+
+                let mut value = value.clone().expect_constructed().ok_or(())?;
+
+                value.reverse();
+
+                let state = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Enumerated as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_integer_to_i64)
+                    .and_then(|v| match v {
+                        0 => Some(SyncStateValue::Present),
+                        1 => Some(SyncStateValue::Add),
+                        2 => Some(SyncStateValue::Modify),
+                        3 => Some(SyncStateValue::Delete),
+                        _ => None,
+                    })
+                    .ok_or(())?;
+
+                let entry_uuid = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(())
+                    .and_then(|v| {
+                        Uuid::from_slice(&v).map_err(|_| {
+                            error!("Invalid syncUUID");
+                            ()
+                        })
+                    })?;
+
+                let cookie = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive());
+
+                Ok(LdapControl::SyncState {
+                    state,
+                    entry_uuid,
+                    cookie,
+                })
+            }
+            "1.3.6.1.4.1.4203.1.9.1.3" => {
+                // parse as sync done control
+                //criticality is ignored.
+
+                let value_ber = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(())?;
+
+                let mut parser = Parser::new();
+                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
+                    ConsumerState::Done(size, ref msg) => (size, msg),
+                    _ => return Err(()),
+                };
+
+                let mut value = value.clone().expect_constructed().ok_or(())?;
+
+                value.reverse();
+
+                let cookie = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive());
+
+                let refresh_deletes = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                Ok(LdapControl::SyncDone {
+                    cookie,
+                    refresh_deletes,
+                })
+            }
+            o => {
+                error!(%o, "Unsupported control oid");
+                Err(())
+            }
+        }
+    }
+}
+
+impl From<LdapControl> for Tag {
+    fn from(value: LdapControl) -> Tag {
+        let (oid, crit, inner_tag) = match value {
+            LdapControl::SyncRequest {
+                criticality,
+                mode,
+                cookie,
+                reload_hint,
+            } => {
+                let inner: Vec<_> = vec![
+                    Some(Tag::Enumerated(Enumerated {
+                        inner: mode as i64,
+                        ..Default::default()
+                    })),
+                    cookie.map(|c| {
+                        Tag::OctetString(OctetString {
+                            inner: c,
+                            ..Default::default()
+                        })
+                    }),
+                    if reload_hint {
+                        Some(Tag::Boolean(Boolean {
+                            inner: true,
+                            ..Default::default()
+                        }))
+                    } else {
+                        None
+                    },
+                ];
+
+                (
+                    "1.3.6.1.4.1.4203.1.9.1.1",
+                    criticality,
+                    Some(Tag::Sequence(Sequence {
+                        inner: inner.into_iter().flatten().collect(),
+                        ..Default::default()
+                    })),
+                )
+            }
+            LdapControl::SyncState {
+                state,
+                entry_uuid,
+                cookie,
+            } => {
+                let inner: Vec<_> = vec![
+                    Some(Tag::Enumerated(Enumerated {
+                        inner: state as i64,
+                        ..Default::default()
+                    })),
+                    Some(Tag::OctetString(OctetString {
+                        inner: entry_uuid.as_bytes().to_vec(),
+                        ..Default::default()
+                    })),
+                    cookie.map(|c| {
+                        Tag::OctetString(OctetString {
+                            inner: c,
+                            ..Default::default()
+                        })
+                    }),
+                ];
+
+                (
+                    "1.3.6.1.4.1.4203.1.9.1.2",
+                    false,
+                    Some(Tag::Sequence(Sequence {
+                        inner: inner.into_iter().flatten().collect(),
+                        ..Default::default()
+                    })),
+                )
+            }
+            LdapControl::SyncDone {
+                cookie,
+                refresh_deletes,
+            } => {
+                let inner: Vec<_> = vec![
+                    cookie.map(|c| {
+                        Tag::OctetString(OctetString {
+                            inner: c,
+                            ..Default::default()
+                        })
+                    }),
+                    if refresh_deletes {
+                        Some(Tag::Boolean(Boolean {
+                            inner: true,
+                            ..Default::default()
+                        }))
+                    } else {
+                        None
+                    },
+                ];
+
+                (
+                    "1.3.6.1.4.1.4203.1.9.1.3",
+                    false,
+                    Some(Tag::Sequence(Sequence {
+                        inner: inner.into_iter().flatten().collect(),
+                        ..Default::default()
+                    })),
+                )
+            }
+        };
+
+        let mut inner = Vec::with_capacity(3);
+
+        inner.push(Tag::OctetString(OctetString {
+            inner: Vec::from(oid),
+            ..Default::default()
+        }));
+        if crit {
+            inner.push(Tag::Boolean(Boolean {
+                inner: true,
+                ..Default::default()
+            }));
+        }
+
+        if let Some(inner_tag) = inner_tag {
+            let mut bytes = BytesMut::new();
+            lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+            inner.push(Tag::OctetString(OctetString {
+                inner: bytes.to_vec(),
+                ..Default::default()
+            }));
+        }
+
+        Tag::Sequence(Sequence {
+            inner,
+            ..Default::default()
+        })
     }
 }
 
@@ -975,7 +1456,7 @@ impl TryFrom<StructureTag> for LdapFilter {
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         if value.class != TagClass::Context {
-            trace!("Invalid tagclass");
+            error!("Invalid tagclass");
             return Err(());
         };
 
@@ -1444,7 +1925,6 @@ impl TryFrom<StructureTag> for LdapPartialAttribute {
                         bv.match_class(TagClass::Universal)
                             .and_then(|t| t.match_id(Types::OctetString as u64))
                             .and_then(|t| t.expect_primitive())
-                            .and_then(|bv| String::from_utf8(bv).ok())
                     })
                     .collect();
                 r
@@ -1664,6 +2144,316 @@ impl LdapExtendedResponse {
     }
 }
 
+impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
+    type Error = ();
+
+    fn try_from(tags: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        let mut name = None;
+        let mut value = None;
+        tags.into_iter().for_each(|v| {
+            match (v.id, v.class) {
+                (0, TagClass::Context) => {
+                    name = v
+                        .expect_primitive()
+                        .and_then(|bv| String::from_utf8(bv).ok())
+                }
+                (1, TagClass::Context) => value = v.expect_primitive(),
+                _ => {
+                    // Do nothing
+                }
+            }
+        });
+
+        // Ok! Now can we match this?
+
+        match (name.as_deref(), value.as_ref()) {
+            (Some("1.3.6.1.4.1.4203.1.9.1.4"), Some(buf)) => {
+                // It's a sync info done. Start to process the value.
+                let mut parser = Parser::new();
+                let (_size, msg) = match *parser.handle(Input::Element(buf)) {
+                    ConsumerState::Done(size, ref msg) => (size, msg),
+                    _ => return Err(()),
+                };
+
+                if msg.class != TagClass::Context {
+                    error!("Invalid tagclass");
+                    return Err(());
+                };
+
+                let id = msg.id;
+                let mut inner = msg.clone().expect_constructed().ok_or_else(|| {
+                    trace!("invalid or filter");
+                })?;
+
+                match id {
+                    0 => {
+                        let cookie =
+                            inner
+                                .pop()
+                                .and_then(|t| t.expect_primitive())
+                                .ok_or_else(|| {
+                                    trace!("invalid cookie");
+                                })?;
+                        Ok(LdapIntermediateResponse::SyncInfoNewCookie { cookie })
+                    }
+                    1 => {
+                        // Whom ever wrote this rfc has a lot to answer for ...
+                        let mut done = true;
+                        let mut cookie = None;
+
+                        for t in inner
+                            .into_iter()
+                            .filter_map(|t| t.match_class(TagClass::Universal))
+                        {
+                            if t.id == Types::Boolean as u64 {
+                                done = t.expect_primitive().and_then(ber_bool_to_bool).ok_or(())?;
+                            } else if t.id == Types::OctetString as u64 {
+                                cookie = t.expect_primitive();
+                            } else {
+                                // skipped
+                            }
+                        }
+
+                        Ok(LdapIntermediateResponse::SyncInfoRefreshDelete { cookie, done })
+                    }
+                    2 => {
+                        let done = inner
+                            .pop()
+                            .and_then(|t| t.match_class(TagClass::Universal))
+                            .and_then(|t| t.match_id(Types::Boolean as u64))
+                            .and_then(|t| t.expect_primitive())
+                            .and_then(ber_bool_to_bool)
+                            .unwrap_or(true);
+
+                        let cookie = inner.pop().and_then(|t| t.expect_primitive());
+
+                        Ok(LdapIntermediateResponse::SyncInfoRefreshPresent { cookie, done })
+                    }
+                    3 => {
+                        let syncuuids = inner
+                            .pop()
+                            .and_then(|t| t.match_class(TagClass::Universal))
+                            .and_then(|t| t.match_id(Types::Set as u64))
+                            .and_then(|t| t.expect_constructed())
+                            .and_then(|bset| {
+                                let r: Option<Vec<_>> = bset
+                                    .into_iter()
+                                    .map(|bv| {
+                                        bv.match_class(TagClass::Universal)
+                                            .and_then(|t| t.match_id(Types::OctetString as u64))
+                                            .and_then(|t| t.expect_primitive())
+                                            .and_then(|v| {
+                                                Uuid::from_slice(&v)
+                                                    .map_err(|_| {
+                                                        error!("Invalid syncUUID");
+                                                        ()
+                                                    })
+                                                    .ok()
+                                            })
+                                    })
+                                    .collect();
+                                r
+                            })
+                            .ok_or(())?;
+
+                        let refresh_deletes = inner
+                            .pop()
+                            .and_then(|t| t.match_class(TagClass::Universal))
+                            .and_then(|t| t.match_id(Types::Boolean as u64))
+                            .and_then(|t| t.expect_primitive())
+                            .and_then(ber_bool_to_bool)
+                            .unwrap_or(false);
+
+                        let cookie = inner.pop().and_then(|t| t.expect_primitive());
+
+                        Ok(LdapIntermediateResponse::SyncInfoIdSet {
+                            cookie,
+                            refresh_deletes,
+                            syncuuids,
+                        })
+                    }
+                    _ => {
+                        trace!("invalid value tag");
+                        return Err(());
+                    }
+                }
+            }
+            _ => Ok(LdapIntermediateResponse::Raw { name, value }),
+        }
+    }
+}
+
+impl From<LdapIntermediateResponse> for Vec<Tag> {
+    fn from(value: LdapIntermediateResponse) -> Vec<Tag> {
+        let (name, value) = match value {
+            LdapIntermediateResponse::SyncInfoNewCookie { cookie } => {
+                let inner = vec![Tag::OctetString(OctetString {
+                    inner: cookie,
+                    ..Default::default()
+                })];
+
+                let inner_tag = Tag::Sequence(Sequence {
+                    class: TagClass::Context,
+                    id: 0,
+                    inner,
+                });
+
+                let mut bytes = BytesMut::new();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                (
+                    Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
+                    Some(bytes.to_vec()),
+                )
+            }
+            LdapIntermediateResponse::SyncInfoRefreshDelete { cookie, done } => {
+                let inner = once_with(|| {
+                    cookie.map(|c| {
+                        Tag::OctetString(OctetString {
+                            inner: c,
+                            ..Default::default()
+                        })
+                    })
+                })
+                .chain(once_with(|| {
+                    if !done {
+                        Some(Tag::Boolean(Boolean {
+                            inner: false,
+                            ..Default::default()
+                        }))
+                    } else {
+                        None
+                    }
+                }))
+                .flatten()
+                .collect();
+
+                let inner_tag = Tag::Sequence(Sequence {
+                    class: TagClass::Context,
+                    id: 1,
+                    inner,
+                });
+
+                let mut bytes = BytesMut::new();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                (
+                    Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
+                    Some(bytes.to_vec()),
+                )
+            }
+            LdapIntermediateResponse::SyncInfoRefreshPresent { cookie, done } => {
+                let inner = once_with(|| {
+                    cookie.map(|c| {
+                        Tag::OctetString(OctetString {
+                            inner: c,
+                            ..Default::default()
+                        })
+                    })
+                })
+                .chain(once_with(|| {
+                    if !done {
+                        Some(Tag::Boolean(Boolean {
+                            inner: false,
+                            ..Default::default()
+                        }))
+                    } else {
+                        None
+                    }
+                }))
+                .flatten()
+                .collect();
+
+                let inner_tag = Tag::Sequence(Sequence {
+                    class: TagClass::Context,
+                    id: 2,
+                    inner,
+                });
+
+                let mut bytes = BytesMut::new();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                (
+                    Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
+                    Some(bytes.to_vec()),
+                )
+            }
+            LdapIntermediateResponse::SyncInfoIdSet {
+                cookie,
+                refresh_deletes,
+                syncuuids,
+            } => {
+                let inner = once_with(|| {
+                    cookie.map(|c| {
+                        Tag::OctetString(OctetString {
+                            inner: c,
+                            ..Default::default()
+                        })
+                    })
+                })
+                .chain(once_with(|| {
+                    if refresh_deletes {
+                        Some(Tag::Boolean(Boolean {
+                            inner: true,
+                            ..Default::default()
+                        }))
+                    } else {
+                        None
+                    }
+                }))
+                .chain(once_with(|| {
+                    Some(Tag::Set(Set {
+                        inner: syncuuids
+                            .into_iter()
+                            .map(|entry_uuid| {
+                                Tag::OctetString(OctetString {
+                                    inner: entry_uuid.as_bytes().to_vec(),
+                                    ..Default::default()
+                                })
+                            })
+                            .collect(),
+                        ..Default::default()
+                    }))
+                }))
+                .flatten()
+                .collect();
+
+                let inner_tag = Tag::Sequence(Sequence {
+                    class: TagClass::Context,
+                    id: 3,
+                    inner,
+                });
+
+                let mut bytes = BytesMut::new();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                (
+                    Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
+                    Some(bytes.to_vec()),
+                )
+            }
+            LdapIntermediateResponse::Raw { name, value } => (name, value),
+        };
+
+        once_with(|| {
+            name.map(|v| {
+                Tag::OctetString(OctetString {
+                    id: 0,
+                    class: TagClass::Context,
+                    inner: Vec::from(v),
+                })
+            })
+        })
+        .chain(once_with(|| {
+            value.map(|v| {
+                Tag::OctetString(OctetString {
+                    id: 1,
+                    class: TagClass::Context,
+                    inner: v,
+                })
+            })
+        }))
+        .flatten()
+        .collect()
+    }
+}
+
 impl TryFrom<i64> for LdapModifyType {
     type Error = ();
 
@@ -1859,7 +2649,11 @@ impl TryFrom<i64> for LdapResultCode {
             69 => Ok(LdapResultCode::ObjectClassModsProhibited),
             71 => Ok(LdapResultCode::AffectsMultipleDSAs),
             80 => Ok(LdapResultCode::Other),
-            _ => Err(()),
+            4096 => Ok(LdapResultCode::EsyncRefreshRequired),
+            i => {
+                error!("Unknown i64 ecode {}", i);
+                Err(())
+            }
         }
     }
 }
