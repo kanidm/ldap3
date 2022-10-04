@@ -1,9 +1,21 @@
-#![deny(warnings)]
+// #![deny(warnings)]
+
 #![warn(unused_extern_crates)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::unreachable)]
+#![deny(clippy::await_holding_lock)]
+#![deny(clippy::needless_pass_by_value)]
+#![deny(clippy::trivially_copy_pass_by_ref)]
+// We allow expect since it forces good error messages at the least.
+#![allow(clippy::expect_used)]
 
 #[macro_use]
 extern crate tracing;
 
+pub mod filter;
 pub mod proto;
 pub mod simple;
 
@@ -16,6 +28,7 @@ use std::convert::TryFrom;
 use std::io;
 use tokio_util::codec::{Decoder, Encoder};
 
+pub use crate::filter::parse_ldap_filter_str;
 use crate::proto::LdapMsg;
 pub use crate::simple::*;
 

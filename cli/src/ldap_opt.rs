@@ -17,7 +17,16 @@ impl Default for SyncRequestMode {
 #[derive(Debug, clap::Subcommand)]
 enum LdapAction {
     /// Search a directory server
-    Search,
+    Search {
+        /// Search this basedn,
+        basedn: String,
+
+        // /// scope
+        // scope
+
+        /// Execute this query
+        filter: String,
+    },
     /// Check authentication (bind) to a directory server
     Whoami,
     /// Sync a listed subtree

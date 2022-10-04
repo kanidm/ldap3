@@ -15,9 +15,10 @@ default = ["strict"]
 strict = []
 
 [dependencies]
-lber.workspace = true
-tokio-util = { workspace = true, features = ["codec"] }
 bytes.workspace = true
+lber.workspace = true
+nom.workspace = true
+tokio-util = { workspace = true, features = ["codec"] }
 tracing.workspace = true
 uuid.workspace = true
 

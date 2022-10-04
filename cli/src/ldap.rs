@@ -1,3 +1,16 @@
+#![deny(warnings)]
+#![warn(unused_extern_crates)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::unreachable)]
+#![deny(clippy::await_holding_lock)]
+#![deny(clippy::needless_pass_by_value)]
+#![deny(clippy::trivially_copy_pass_by_ref)]
+// We allow expect since it forces good error messages at the least.
+#![allow(clippy::expect_used)]
+
 use clap::Parser;
 use ldap3_client::*;
 
@@ -77,8 +90,41 @@ async fn main() {
     };
 
     match opt.action {
-        LdapAction::Search => {
-            // todo!
+        LdapAction::Search { basedn, filter } => {
+            let filter = ldap3_client::filter::parse_ldap_filter_str(&filter)
+                .map_err(|e| {
+                    error!(?e);
+                })
+                .expect("Invalid filter");
+
+            match client.search(basedn, filter).await {
+                Ok(search_result) => {
+                    if opt.json {
+                    } else {
+                        for ent in &search_result.entries {
+                            println!("dn: {}", ent.dn);
+                            for (attr, vals) in &ent.attrs {
+                                for val in vals {
+                                    println!("{}: {}", attr, val);
+                                }
+                            }
+                            println!("");
+                        }
+                    }
+                }
+                Err(e) => {
+                    if opt.json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&e)
+                                .expect("CRITICAL: Serialisation Fault")
+                        )
+                    } else {
+                        error!("Failed to send syncrepl request - {}", e);
+                    }
+                    std::process::exit(e as i32);
+                }
+            }
         }
         LdapAction::Whoami => match client.whoami().await {
             Ok(Some(dn)) => {

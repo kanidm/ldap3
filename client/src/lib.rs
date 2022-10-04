@@ -1,3 +1,16 @@
+#![deny(warnings)]
+#![warn(unused_extern_crates)]
+#![deny(clippy::todo)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::unreachable)]
+#![deny(clippy::await_holding_lock)]
+#![deny(clippy::needless_pass_by_value)]
+#![deny(clippy::trivially_copy_pass_by_ref)]
+// We allow expect since it forces good error messages at the least.
+#![allow(clippy::expect_used)]
+
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use tokio::io::{ReadHalf, WriteHalf};
@@ -20,8 +33,10 @@ use std::fmt;
 use url::Url;
 use uuid::Uuid;
 
+pub use ldap3_proto::filter;
 pub use ldap3_proto::proto;
 
+mod search;
 mod syncrepl;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -50,7 +65,10 @@ impl From<LdapResultCode> for LdapError {
             LdapResultCode::InvalidCredentials => LdapError::InvalidCredentials,
             LdapResultCode::InsufficentAccessRights => LdapError::InsufficentAccessRights,
             LdapResultCode::EsyncRefreshRequired => LdapError::EsyncRefreshRequired,
-            _ => unimplemented!(),
+            err => {
+                trace!(?err);
+                unimplemented!()
+            }
         }
     }
 }
