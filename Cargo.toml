@@ -1,35 +1,49 @@
-[package]
-name = "ldap3_proto"
+[profile.release]
+debug = true
+lto = "thin"
+
+[workspace]
+members = [
+    "proto",
+    "client",
+    "cli"
+]
+
+
+[workspace.package]
 version = "0.3.0"
-authors = ["William Brown <william@blackhats.net.au>"]
+authors = [
+    "William Brown <william@blackhats.net.au>",
+    ]
+rust-version = "1.64"
 edition = "2021"
-
-description = "LDAP Protocol bindings for Tokio"
-repository = "https://github.com/kanidm/ldap3_server"
-readme = "README.md"
-keywords = ["ldap", "protocol", "authentication", "chaos"]
-categories = ["authentication"]
 license = "MPL-2.0"
+homepage = "https://github.com/kanidm/ldap3/"
+repository = "https://github.com/kanidm/ldap3/"
+keywords = ["ldap", "protocol", "authentication", "chaos"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[features]
-default = ["strict"]
-strict = []
-
-[dependencies]
-lber = "^0.3.0"
-tokio-util = { version = "^0.7.1", features = ["codec"] }
+[workspace.dependencies]
+base64 = "0.13"
 bytes = "^1.1.0"
-tracing = "^0.1.34"
+clap = "^3.2"
+clap_complete = "^3.2.3"
+futures = "^0.3.21"
+futures-util = "^0.3.21"
+lber = "^0.3.0"
+ldap3_client = { path = "./client" }
+ldap3_proto = { path = "./proto" }
+openssl = "^0.10.38"
+ron = "^0.8.0"
+rpassword = "7.0.0"
+serde = { version = "^1.0.136", features = ["derive"] }
+serde_json = "^1.0.79"
+tokio = "^1.17.0"
+tokio-util = "^0.7.1"
+tokio-openssl = "^0.6.3"
+tracing = { version = "^0.1.34", features = ["attributes"] }
+tracing-subscriber = "^0.3.11"
+url = "^2.2.2"
 uuid = "^1.1.2"
 
-[dev-dependencies]
-tracing-subscriber = "^0.3.11"
 
-futures-util = "^0.3.21"
-tokio = { version = "^1.17.0", features = ["rt-multi-thread", "io-util", "net", "signal", "macros"] }
-futures = "^0.3.21"
 
-tokio-openssl = "^0.6.3"
-openssl = "^0.10.38"

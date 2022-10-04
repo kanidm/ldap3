@@ -1,0 +1,32 @@
+[package]
+name = "ldap3_proto"
+description = "LDAP Protocol Bindings for Tokio"
+
+version.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+default = ["strict"]
+strict = []
+
+[dependencies]
+lber.workspace = true
+tokio-util = { workspace = true, features = ["codec"] }
+bytes.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+
+futures-util.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "io-util", "net", "signal", "macros"] }
+futures.workspace = true
+
+tokio-openssl.workspace = true
+openssl.workspace = true
