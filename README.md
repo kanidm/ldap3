@@ -1,24 +1,31 @@
-# Ldap3 Protocol Bindings
+# Ldap3 Protocol Bindings and Async Client
 
-This is a work-in-progress of LDAP3 server and client capable protocol bindings.
+This is a work-in-progress of LDAP3 protocol bindings and an async client library.
 
-This is *not* an LDAP3 server or client - it is the required parts to allow you to build one
-using a TCP server/client. You will and should develop your own state machine, and
+This is *not* an LDAP3 server - it is the required parts to allow you to build one
+using a TCP/TLS server. You will and should develop your own state machine, and
 should consider the many security risks of LDAP3 such as filter stack limits,
 request sizelimits, number of entries limited in results, binds and how you
 check access controls, and more.
 
 ## Structure
 
+### Proto
+
 This library contains all the needed protocol bindings, mapped to their BER structures
 in `proto`, as well as a set of `simple` wrappers of common operations required for
 a server, discarding many of the esoteric options that are generally not required.
 
-## Examples
+### Client
 
-There is an example hardcoded server using tokio in `examples`
+The client is a tokio based async client library. It is still in development, so not
+all features are supported.
 
-## ScoreCard
+### Cli
+
+This is a thin wrapper over the async client for minimal usage and testing.
+
+## Protocol Support ScoreCard
 
 | name | from rfc | implemented? |
 | ---- | -------- | ------------ |
@@ -35,6 +42,7 @@ There is an example hardcoded server using tokio in `examples`
 | extended | rfc4511 | ✅ (may need extension) |
 | whoami | rfc4532 | ✅ |
 | disconnection notice | rfc4511 | ✅ |
+| content sync | rfc4533 | ✅ |
 
 ## Things we won't add
 
