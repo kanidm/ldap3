@@ -1,5 +1,4 @@
 
-
 /*
 #[derive(clap::ValueEnum, Debug, Clone)]
 enum SyncRequestMode {
@@ -29,13 +28,19 @@ enum LdapAction {
     },
     /// Check authentication (bind) to a directory server
     Whoami,
-    /// Sync a listed subtree
+    /// Sync a listed subtree from FreeIPA, OpenLDAP or 389-ds
     Syncrepl {
         basedn: String,
         #[clap(long)]
         cookie: Option<String>,
         // #[clap(value_enum, default_value_t, long)]
         // mode: SyncRequestMode
+    },
+    /// Sync a directory partition from Active Directory
+    AdDirsync {
+        basedn: String,
+        #[clap(long)]
+        cookie: Option<String>,
     },
 }
 

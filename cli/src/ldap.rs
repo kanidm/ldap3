@@ -222,5 +222,61 @@ async fn main() {
                 }
             }
         }
+        LdapAction::AdDirsync { basedn, cookie } => {
+            let cookie = if let Some(cookie) = cookie {
+                match base64::decode_config(&cookie, base64::STANDARD_NO_PAD) {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        error!(?e, "Failed to parse cookie");
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+
+            match client.ad_dirsync(basedn, cookie).await {
+                Ok(sync_repl) => {
+                    // what do?
+                    for ent in &sync_repl.entries {
+                        // println!("entryuuid: {}", ent.entry_uuid);
+                        println!("dn: {}", ent.entry.dn);
+                        for (attr, vals) in &ent.entry.attrs {
+                            for val in vals {
+                                println!("{}: {}", attr, val);
+                            }
+                        }
+                        println!("");
+                    }
+                    for entry_uuid in &sync_repl.delete_uuids {
+                        println!("delete entryuuid: {}", entry_uuid);
+                    }
+                    if !sync_repl.present_uuids.is_empty() {
+                        println!("");
+                    }
+                    for entry_uuid in &sync_repl.present_uuids {
+                        println!("delete entryuuid: {}", entry_uuid);
+                        println!("");
+                    }
+                    println!("");
+                    println!(
+                        "cookie: {}",
+                        sync_repl.cookie.unwrap_or_else(|| "NONE".to_string())
+                    );
+                }
+                Err(e) => {
+                    if opt.json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&e)
+                                .expect("CRITICAL: Serialisation Fault")
+                        )
+                    } else {
+                        error!("Failed to send syncrepl request - {}", e);
+                    }
+                    std::process::exit(e as i32);
+                }
+            }
+        }
     }
 }

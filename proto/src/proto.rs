@@ -42,6 +42,7 @@ pub enum SyncStateValue {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LdapControl {
     SyncRequest {
+        // Shouldn't this imply true?
         criticality: bool,
         mode: SyncRequestMode,
         cookie: Option<Vec<u8>>,
@@ -55,6 +56,12 @@ pub enum LdapControl {
     SyncDone {
         cookie: Option<Vec<u8>>,
         refresh_deletes: bool,
+    },
+    AdDirsync {
+        flags: i64,
+        // Msdn and wireshark disagree on the name oof this type.
+        max_bytes: i64,
+        cookie: Option<Vec<u8>>,
     },
 }
 
@@ -1037,7 +1044,7 @@ impl TryFrom<StructureTag> for LdapControl {
             }
             "1.3.6.1.4.1.4203.1.9.1.3" => {
                 // parse as sync done control
-                //criticality is ignored.
+                // criticality is ignored.
 
                 let value_ber = value_tag
                     .and_then(|t| t.match_class(TagClass::Universal))
@@ -1072,6 +1079,51 @@ impl TryFrom<StructureTag> for LdapControl {
                 Ok(LdapControl::SyncDone {
                     cookie,
                     refresh_deletes,
+                })
+            }
+            "1.2.840.113556.1.4.841" => {
+                let value_ber = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(())?;
+
+                let mut parser = Parser::new();
+                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
+                    ConsumerState::Done(size, ref msg) => (size, msg),
+                    _ => return Err(()),
+                };
+
+                let mut value = value.clone().expect_constructed().ok_or(())?;
+
+                value.reverse();
+
+                let flags = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Integer as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_integer_to_i64)
+                    .ok_or(())?;
+
+                let max_bytes = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Integer as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_integer_to_i64)
+                    .ok_or(())?;
+
+                let cookie = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive());
+
+                Ok(LdapControl::AdDirsync {
+                    flags,
+                    max_bytes,
+                    cookie,
                 })
             }
             o => {
@@ -1178,6 +1230,36 @@ impl From<LdapControl> for Tag {
                     false,
                     Some(Tag::Sequence(Sequence {
                         inner: inner.into_iter().flatten().collect(),
+                        ..Default::default()
+                    })),
+                )
+            }
+            LdapControl::AdDirsync {
+                flags,
+                max_bytes,
+                cookie,
+            } => {
+                let criticality = true;
+                let inner: Vec<_> = vec![
+                    Tag::Integer(Integer {
+                        inner: flags,
+                        ..Default::default()
+                    }),
+                    Tag::Integer(Integer {
+                        inner: max_bytes,
+                        ..Default::default()
+                    }),
+                    Tag::OctetString(OctetString {
+                        inner: cookie.unwrap_or_default(),
+                        ..Default::default()
+                    }),
+                ];
+
+                (
+                    "1.2.840.113556.1.4.841",
+                    criticality,
+                    Some(Tag::Sequence(Sequence {
+                        inner,
                         ..Default::default()
                     })),
                 )

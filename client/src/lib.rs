@@ -36,6 +36,7 @@ use uuid::Uuid;
 pub use ldap3_proto::filter;
 pub use ldap3_proto::proto;
 
+mod addirsync;
 mod search;
 mod syncrepl;
 
@@ -54,6 +55,7 @@ pub enum LdapError {
     TransportReadError = -10,
     InvalidProtocolState = -11,
 
+    UnavailableCriticalExtension = 12,
     InvalidCredentials = 49,
     InsufficentAccessRights = 50,
     EsyncRefreshRequired = 4096,
@@ -65,6 +67,7 @@ impl From<LdapResultCode> for LdapError {
             LdapResultCode::InvalidCredentials => LdapError::InvalidCredentials,
             LdapResultCode::InsufficentAccessRights => LdapError::InsufficentAccessRights,
             LdapResultCode::EsyncRefreshRequired => LdapError::EsyncRefreshRequired,
+            LdapResultCode::UnavailableCriticalExtension => LdapError::UnavailableCriticalExtension,
             err => {
                 trace!(?err);
                 unimplemented!()
@@ -93,6 +96,7 @@ impl fmt::Display for LdapError {
             LdapError::TransportWriteError => {
                 write!(f, "An error occured writing to the transport")
             }
+            LdapError::UnavailableCriticalExtension => write!(f, "An extension marked as critical was not available"),
             LdapError::InvalidCredentials => write!(f, "Invalid DN or Password"),
             LdapError::InsufficentAccessRights => write!(f, "Insufficent Access"),
             LdapError::EsyncRefreshRequired => write!(f, "An initial content sync is required. The current cookie should be considered invalid."),
