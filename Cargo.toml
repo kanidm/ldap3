@@ -24,6 +24,7 @@ keywords = ["ldap", "protocol", "authentication", "chaos"]
 
 [workspace.dependencies]
 base64 = "0.13"
+base64urlsafedata = "0.1.0"
 bytes = "^1.1.0"
 clap = "^3.2"
 clap_complete = "^3.2.3"

@@ -1,3 +1,4 @@
+use base64urlsafedata::Base64UrlSafeData;
 use crate::LdapClient;
 use crate::*;
 
@@ -9,7 +10,7 @@ pub struct LdapSyncReplEntry {
 
 #[derive(Debug)]
 pub struct LdapSyncRepl {
-    pub cookie: Option<String>,
+    pub cookie: Option<Base64UrlSafeData>,
     pub entries: Vec<LdapSyncReplEntry>,
     pub delete_uuids: Vec<Uuid>,
     pub present_uuids: Vec<Uuid>,
@@ -67,8 +68,7 @@ impl LdapClient {
                         cookie,
                     }) = msg.ctrl.pop()
                     {
-                        let cookie =
-                            cookie.map(|bin| base64::encode_config(&bin, base64::STANDARD_NO_PAD));
+                        let cookie = cookie.map(Base64UrlSafeData);
                         break Ok(LdapSyncRepl {
                             cookie,
                             entries,

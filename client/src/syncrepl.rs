@@ -1,20 +1,46 @@
+use serde::{Deserialize, Serialize};
 use crate::LdapClient;
 use crate::*;
+use base64urlsafedata::Base64UrlSafeData;
 
-#[derive(Debug)]
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub enum LdapSyncStateValue {
+    Present,
+    Add,
+    Modify,
+    Delete,
+}
+
+impl From<SyncStateValue> for LdapSyncStateValue {
+    fn from(v: SyncStateValue) -> LdapSyncStateValue {
+        match v {
+            SyncStateValue::Present => LdapSyncStateValue::Present,
+            SyncStateValue::Add     => LdapSyncStateValue::Add,
+            SyncStateValue::Modify  => LdapSyncStateValue::Modify,
+            SyncStateValue::Delete  => LdapSyncStateValue::Delete,
+        }
+    }
+}
+
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LdapSyncReplEntry {
     pub entry_uuid: Uuid,
-    pub state: SyncStateValue,
+    pub state: LdapSyncStateValue,
     pub entry: LdapEntry,
 }
 
-#[derive(Debug)]
-pub struct LdapSyncRepl {
-    pub cookie: Option<String>,
-    pub refresh_deletes: bool,
-    pub entries: Vec<LdapSyncReplEntry>,
-    pub delete_uuids: Vec<Uuid>,
-    pub present_uuids: Vec<Uuid>,
+#[derive(Debug, Deserialize, Serialize)]
+pub enum LdapSyncRepl {
+    Success {
+        cookie: Option<Base64UrlSafeData>,
+        refresh_deletes: bool,
+        entries: Vec<LdapSyncReplEntry>,
+        delete_uuids: Vec<Uuid>,
+        present_uuids: Vec<Uuid>,
+    },
+    RefreshRequired,
 }
 
 impl LdapClient {
@@ -22,6 +48,7 @@ impl LdapClient {
     pub async fn syncrepl(
         &mut self,
         basedn: String,
+        filter: LdapFilter,
         cookie: Option<Vec<u8>>,
         mode: SyncRequestMode,
     ) -> crate::LdapResult<LdapSyncRepl> {
@@ -36,7 +63,7 @@ impl LdapClient {
                 sizelimit: 0,
                 timelimit: 0,
                 typesonly: false,
-                filter: LdapFilter::Present("objectClass".to_string()),
+                filter,
                 attrs: vec![],
             }),
             ctrl: vec![LdapControl::SyncRequest {
@@ -70,9 +97,8 @@ impl LdapClient {
                         refresh_deletes,
                     }) = msg.ctrl.pop()
                     {
-                        let cookie =
-                            cookie.map(|bin| base64::encode_config(&bin, base64::STANDARD_NO_PAD));
-                        break Ok(LdapSyncRepl {
+                        let cookie = cookie.map(Base64UrlSafeData);
+                        break Ok(LdapSyncRepl::Success {
                             cookie,
                             refresh_deletes,
                             entries,
@@ -83,6 +109,16 @@ impl LdapClient {
                         error!("Invalid Sync Control encountered");
                         break Err(LdapError::InvalidProtocolState);
                     }
+                }
+                // Indicate to the client they need to refresh
+                LdapOp::SearchResultDone(proto::LdapResult {
+                    code: LdapResultCode::EsyncRefreshRequired,
+                    message,
+                    matcheddn: _,
+                    referral: _,
+                }) => {
+                    error!(%message);
+                    break Ok(LdapSyncRepl::RefreshRequired);
                 }
                 LdapOp::IntermediateResponse(LdapIntermediateResponse::SyncInfoIdSet {
                     cookie: _,
@@ -134,7 +170,7 @@ impl LdapClient {
                         }
                         entries.push(LdapSyncReplEntry {
                             entry_uuid,
-                            state,
+                            state: state.into(),
                             entry: entry.into(),
                         })
                     } else {

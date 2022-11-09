@@ -13,6 +13,7 @@
 
 use clap::Parser;
 use ldap3_client::*;
+use ldap3_client::proto::LdapFilter;
 
 include!("./ldap_opt.rs");
 
@@ -21,8 +22,6 @@ async fn main() {
     let opt = LdapOpt::from_args();
     ldap3_cli_common::start_tracing(opt.verbose);
     info!("ldap command line utility");
-
-    let timeout = Duration::from_secs(1);
 
     let (bind_dn, bind_passwd) = if let Some(dn) = opt.bind_dn {
         if let Some(pw) = opt.bind_passwd {
@@ -61,7 +60,8 @@ async fn main() {
         }
     };
 
-    let mut client = match LdapClient::new(&opt.url, timeout).await {
+    let mut client = match LdapClientBuilder::new(&opt.url)
+        .build().await {
         Ok(c) => c,
         Err(e) => {
             if opt.json {
@@ -177,10 +177,21 @@ async fn main() {
                 None
             };
 
-            match client.syncrepl(basedn, cookie, mode).await {
-                Ok(sync_repl) => {
+            let filter = LdapFilter::Present("objectClass".to_string());
+
+            match client.syncrepl(basedn, filter, cookie, mode).await {
+                Ok(LdapSyncRepl::RefreshRequired) => {
+                    error!("Cookie has been invalidated - a full refresh is required");
+                }
+                Ok(LdapSyncRepl::Success {
+                    cookie,
+                    refresh_deletes,
+                    entries,
+                    delete_uuids,
+                    present_uuids,
+                }) => {
                     // what do?
-                    for ent in &sync_repl.entries {
+                    for ent in &entries {
                         println!("entryuuid: {}", ent.entry_uuid);
                         println!("syncstate: {:?}", ent.state);
                         println!("dn: {}", ent.entry.dn);
@@ -191,21 +202,24 @@ async fn main() {
                         }
                         println!("");
                     }
-                    for entry_uuid in &sync_repl.delete_uuids {
+                    for entry_uuid in &delete_uuids {
                         println!("delete entryuuid: {}", entry_uuid);
                     }
-                    if !sync_repl.present_uuids.is_empty() {
+                    if !present_uuids.is_empty() {
                         println!("");
                     }
-                    for entry_uuid in &sync_repl.present_uuids {
-                        println!("delete entryuuid: {}", entry_uuid);
+                    for entry_uuid in &present_uuids {
+                        println!("present entryuuid: {}", entry_uuid);
                         println!("");
                     }
                     println!("");
-                    println!("refresh_deletes: {}", sync_repl.refresh_deletes);
+                    println!("refresh_deletes: {}", refresh_deletes);
+
                     println!(
                         "cookie: {}",
-                        sync_repl.cookie.unwrap_or_else(|| "NONE".to_string())
+                        cookie
+                            .map(|bin| base64::encode_config(&bin, base64::STANDARD_NO_PAD))
+                            .unwrap_or_else(|| "NONE".to_string())
                     );
                 }
                 Err(e) => {
@@ -261,7 +275,9 @@ async fn main() {
                     println!("");
                     println!(
                         "cookie: {}",
-                        sync_repl.cookie.unwrap_or_else(|| "NONE".to_string())
+                        sync_repl.cookie
+                            .map(|bin| base64::encode_config(&bin, base64::STANDARD_NO_PAD))
+                            .unwrap_or_else(|| "NONE".to_string())
                     );
                 }
                 Err(e) => {

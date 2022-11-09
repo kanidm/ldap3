@@ -25,7 +25,11 @@ use futures_util::stream::StreamExt;
 use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
 use openssl::ssl::{Ssl, SslConnector, SslMethod, SslVerifyMode};
+use openssl::x509::X509;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::fs::File;
+use std::io::Read;
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
@@ -39,6 +43,8 @@ pub use ldap3_proto::proto;
 mod addirsync;
 mod search;
 mod syncrepl;
+
+pub use syncrepl::{ LdapSyncRepl, LdapSyncReplEntry, LdapSyncStateValue};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[repr(i32)]
@@ -54,6 +60,7 @@ pub enum LdapError {
     TransportWriteError = -9,
     TransportReadError = -10,
     InvalidProtocolState = -11,
+    FileIOError = -12,
 
     UnavailableCriticalExtension = 12,
     InvalidCredentials = 49,
@@ -89,6 +96,9 @@ impl fmt::Display for LdapError {
             LdapError::AnonymousInvalidState => write!(f, "Invalid Anonymous bind state"),
             LdapError::InvalidProtocolState => {
                 write!(f, "The LDAP server sent a response we did not expect")
+            }
+            LdapError::FileIOError => {
+                write!(f, "An error occured while accessing a file")
             }
             LdapError::TransportReadError => {
                 write!(f, "An error occured reading from the transport")
@@ -180,10 +190,28 @@ impl LdapReadTransport {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LdapEntry {
     pub dn: String,
     pub attrs: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl LdapEntry {
+    pub fn remove_ava_single(&mut self, attr: &str) -> Option<String> {
+        if let Some(ava) = self.attrs.remove(attr) {
+            if ava.len() == 1 {
+                ava.into_iter().next()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_ava(&mut self, attr: &str) -> Option<BTreeSet<String>> {
+        self.attrs.remove(attr)
+    }
 }
 
 impl From<LdapSearchResultEntry> for LdapEntry {
@@ -193,11 +221,21 @@ impl From<LdapSearchResultEntry> for LdapEntry {
         let attrs = attributes
             .into_iter()
             .map(|LdapPartialAttribute { atype, vals }| {
+                let atype = atype.to_lowercase();
+
+                let lower = atype == "objectclass";
+
                 let va = vals
                     .into_iter()
                     .map(|bin| {
                         std::str::from_utf8(&bin)
-                            .map(|s| s.to_string())
+                            .map(|s| {
+                                if lower {
+                                    s.to_lowercase()
+                                } else {
+                                    s.to_string()
+                                }
+                            })
                             .unwrap_or_else(|_| {
                                 base64::encode_config(&bin, base64::STANDARD_NO_PAD)
                             })
@@ -211,16 +249,40 @@ impl From<LdapSearchResultEntry> for LdapEntry {
     }
 }
 
-#[derive(Debug)]
-pub struct LdapClient {
-    read_transport: LdapReadTransport,
-    write_transport: LdapWriteTransport,
-    msg_counter: i32,
+pub struct LdapClientBuilder<'a> {
+    url: &'a Url,
+    timeout: Duration,
+    cas: Vec<&'a Path>,
 }
 
-impl LdapClient {
+impl<'a> LdapClientBuilder<'a> {
+    pub fn new(url: &'a Url) -> Self {
+        LdapClientBuilder {
+            url,
+            timeout: Duration::from_secs(30),
+            cas: Vec::new(),
+        }
+    }
+
+    pub fn set_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn add_tls_ca(mut self, ca: &'a dyn AsRef<Path>) -> Self {
+        self.cas.push(ca.as_ref());
+        self
+    }
+
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn new(url: &Url, timeout: Duration) -> LdapResult<Self> {
+    pub async fn build(self) -> LdapResult<LdapClient> {
+
+        let LdapClientBuilder {
+            url,
+            timeout,
+            cas
+        } = self;
+
         info!(%url);
         info!(?timeout);
 
@@ -286,24 +348,58 @@ impl LdapClient {
 
         // If ldaps - start openssl
         let (write_transport, read_transport) = if need_tls {
+
             let mut tls_parms = SslConnector::builder(SslMethod::tls_client()).map_err(|e| {
-                info!(?e, "openssl");
+                error!(?e, "openssl");
                 LdapError::TlsError
             })?;
-            tls_parms.set_verify(SslVerifyMode::NONE);
+
+            let cert_store = tls_parms.cert_store_mut();
+            for ca in cas.iter() {
+                let mut file = File::open(ca)
+                    .map_err(|e| {
+                        error!(?e, "Unable to open {:?}", ca);
+                        LdapError::FileIOError
+                    })?;
+
+                let mut pem = Vec::new();
+                file.read_to_end(&mut pem)
+                    .map_err(|e| {
+                        error!(?e, "Unable to read {:?}", ca);
+                        LdapError::FileIOError
+                    })?;
+
+
+                let ca_cert = X509::from_pem(pem.as_slice())
+                .map_err(|e| {
+                    error!(?e, "openssl");
+                    LdapError::TlsError
+                })?;
+
+                cert_store.add_cert(ca_cert)
+                .map(|()| {
+                    info!("Added {:?} to cert store", ca);
+                })
+                .map_err(|e| {
+                    error!(?e, "openssl");
+                    LdapError::TlsError
+                })?;
+            }
+
+            tls_parms.set_verify(SslVerifyMode::PEER);
             let tls_parms = tls_parms.build();
 
             let mut tlsstream = Ssl::new(tls_parms.context())
                 .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
                 .map_err(|e| {
-                    info!(?e, "openssl");
+                    error!(?e, "openssl");
                     LdapError::TlsError
                 })?;
 
             let _ = SslStream::connect(Pin::new(&mut tlsstream))
                 .await
                 .map_err(|e| {
-                    info!(?e, "openssl");
+                    error!(?e, "openssl");
                     LdapError::TlsError
                 })?;
 
@@ -330,7 +426,16 @@ impl LdapClient {
             msg_counter,
         })
     }
+}
 
+#[derive(Debug)]
+pub struct LdapClient {
+    read_transport: LdapReadTransport,
+    write_transport: LdapWriteTransport,
+    msg_counter: i32,
+}
+
+impl LdapClient {
     fn get_next_msgid(&mut self) -> i32 {
         let msgid = self.msg_counter;
         self.msg_counter += 1;
