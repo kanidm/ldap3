@@ -176,6 +176,8 @@ pub enum LdapSearchScope {
     Base = 0,
     OneLevel = 1,
     Subtree = 2,
+    // https://datatracker.ietf.org/doc/html/draft-sermersheim-ldap-subordinate-scope-02#section-2
+    Children = 3,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2557,6 +2559,7 @@ impl TryFrom<i64> for LdapSearchScope {
             0 => Ok(LdapSearchScope::Base),
             1 => Ok(LdapSearchScope::OneLevel),
             2 => Ok(LdapSearchScope::Subtree),
+            3 => Ok(LdapSearchScope::Children),
             _ => Err(()),
         }
     }
