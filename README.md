@@ -36,7 +36,7 @@ This is a thin wrapper over the async client for minimal usage and testing.
 | modify | rfc4511 | ✅ |
 | add | rfc4511 | ✅ |
 | delete | rfc4511 | ✅ |
-| modRDN | rfc4511 | ❌ |
+| modRDN | rfc4511 | ✅ |
 | compare | rfc4511 | ❌ |
 | abandon | rfc4511 | ✅ |
 | extended | rfc4511 | ✅ (may need extension) |

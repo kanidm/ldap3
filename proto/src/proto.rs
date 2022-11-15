@@ -144,6 +144,9 @@ pub enum LdapOp {
     // https://tools.ietf.org/html/rfc4511#section-4.8
     DelRequest(String),
     DelResponse(LdapResult),
+    // https://datatracker.ietf.org/doc/html/rfc4511#section-4.9
+    ModifyDNRequest(LdapModifyDNRequest),
+    ModifyDNResponse(LdapResult),
     // https://tools.ietf.org/html/rfc4511#section-4.11
     AbandonRequest(i32),
     // https://tools.ietf.org/html/rfc4511#section-4.12
@@ -261,6 +264,14 @@ pub enum LdapModifyType {
     Add = 0,
     Delete = 1,
     Replace = 2,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapModifyDNRequest {
+    pub dn: String,
+    pub newrdn: String,
+    pub deleteoldrdn: bool,
+    pub new_superior: Option<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -773,6 +784,10 @@ impl TryFrom<StructureTag> for LdapOp {
             (11, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::DelResponse(lr))
             }
+            (12, PL::C(inner)) => LdapModifyDNRequest::try_from(inner).map(LdapOp::ModifyDNRequest),
+            (13, PL::C(inner)) => {
+                LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::ModifyDNResponse(lr))
+            }
             (16, PL::P(inner)) => ber_integer_to_i64(inner)
                 .ok_or(())
                 .map(|s| LdapOp::AbandonRequest(s as i32)),
@@ -852,6 +867,16 @@ impl From<LdapOp> for Tag {
             LdapOp::DelResponse(lr) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
                 id: 11,
+                inner: lr.into(),
+            }),
+            LdapOp::ModifyDNRequest(mdr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 12,
+                inner: mdr.into(),
+            }),
+            LdapOp::ModifyDNResponse(lr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 13,
                 inner: lr.into(),
             }),
             LdapOp::AbandonRequest(id) => Tag::Integer(Integer {
@@ -2634,6 +2659,52 @@ impl TryFrom<Vec<StructureTag>> for LdapAddRequest {
     }
 }
 
+impl TryFrom<Vec<StructureTag>> for LdapModifyDNRequest {
+    type Error = ();
+
+    fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        value.reverse();
+
+        let dn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let newrdn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let deleteoldrdn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Boolean as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(ber_bool_to_bool)
+            .ok_or(())?;
+
+        let new_superior = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Context))
+            .and_then(|t| t.match_id(0))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok());
+
+        Ok(Self {
+            dn,
+            newrdn,
+            deleteoldrdn,
+            new_superior,
+        })
+    }
+}
+
 impl From<LdapModify> for Tag {
     fn from(value: LdapModify) -> Tag {
         let LdapModify {
@@ -2684,6 +2755,41 @@ impl From<LdapAddRequest> for Vec<Tag> {
                 ..Default::default()
             }),
         ]
+    }
+}
+
+impl From<LdapModifyDNRequest> for Vec<Tag> {
+    fn from(value: LdapModifyDNRequest) -> Vec<Tag> {
+        let LdapModifyDNRequest {
+            dn,
+            newrdn,
+            deleteoldrdn,
+            new_superior,
+        } = value;
+
+        let mut v = Vec::with_capacity(4);
+
+        v.push(Tag::OctetString(OctetString {
+            inner: Vec::from(dn),
+            ..Default::default()
+        }));
+        v.push(Tag::OctetString(OctetString {
+            inner: Vec::from(newrdn),
+            ..Default::default()
+        }));
+        v.push(Tag::Boolean(Boolean {
+            inner: deleteoldrdn,
+            ..Default::default()
+        }));
+
+        if let Some(ns) = new_superior {
+            v.push(Tag::OctetString(OctetString {
+                id: 0,
+                class: TagClass::Context,
+                inner: Vec::from(ns),
+            }))
+        }
+        v
     }
 }
 

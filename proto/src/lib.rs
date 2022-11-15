@@ -380,6 +380,44 @@ mod tests {
     }
 
     #[test]
+    fn test_ldapserver_codec_modify_dn_request() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::ModifyDNRequest(LdapModifyDNRequest {
+                dn: "cn=bob,ou=people,dc=example,dc=com".to_string(),
+                newrdn: "cn=bob".to_string(),
+                deleteoldrdn: true,
+                new_superior: Some("ou=users,dc=example,dc=com".to_string()),
+            }),
+            ctrl: vec![],
+        });
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::ModifyDNRequest(LdapModifyDNRequest {
+                dn: "cn=bob,ou=people,dc=example,dc=com".to_string(),
+                newrdn: "cn=bobby".to_string(),
+                deleteoldrdn: true,
+                new_superior: None,
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_codec_modify_dn_response() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::ModifyDNResponse(LdapResult {
+                code: LdapResultCode::Success,
+                matcheddn: "cn=Directory Manager".to_string(),
+                message: "It works!".to_string(),
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
     fn test_syncrepl_result_from_raw() {
         use lber::Consumer;
         use std::convert::TryFrom;
