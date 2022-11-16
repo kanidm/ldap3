@@ -492,4 +492,25 @@ mod tests {
             }],
         });
     }
+
+    #[test]
+    fn test_ldapserver_search_with_simple_paged_results_request() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::SimplePagedResults {
+                size: 100,
+                cookie: "opaque".to_string(),
+            }],
+        });
+    }
 }

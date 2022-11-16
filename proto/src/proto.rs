@@ -63,6 +63,11 @@ pub enum LdapControl {
         max_bytes: i64,
         cookie: Option<Vec<u8>>,
     },
+    // https://www.ietf.org/rfc/rfc2696.txt
+    SimplePagedResults {
+        size: i64,
+        cookie: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1153,6 +1158,41 @@ impl TryFrom<StructureTag> for LdapControl {
                     cookie,
                 })
             }
+            "1.2.840.113556.1.4.319" => {
+                let value_ber = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(())?;
+
+                let mut parser = Parser::new();
+                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
+                    ConsumerState::Done(size, ref msg) => (size, msg),
+                    _ => return Err(()),
+                };
+
+                let mut value = value.clone().expect_constructed().ok_or(())?;
+
+                value.reverse();
+
+                let size = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Integer as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_integer_to_i64)
+                    .ok_or(())?;
+
+                let cookie = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| String::from_utf8(bv).ok())
+                    .ok_or(())?;
+
+                Ok(LdapControl::SimplePagedResults { size, cookie })
+            }
             o => {
                 error!(%o, "Unsupported control oid");
                 Err(())
@@ -1285,6 +1325,27 @@ impl From<LdapControl> for Tag {
                 (
                     "1.2.840.113556.1.4.841",
                     criticality,
+                    Some(Tag::Sequence(Sequence {
+                        inner,
+                        ..Default::default()
+                    })),
+                )
+            }
+            LdapControl::SimplePagedResults { size, cookie } => {
+                let inner: Vec<_> = vec![
+                    Tag::Integer(Integer {
+                        inner: size,
+                        ..Default::default()
+                    }),
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(cookie),
+                        ..Default::default()
+                    }),
+                ];
+
+                (
+                    "1.2.840.113556.1.4.319",
+                    false,
                     Some(Tag::Sequence(Sequence {
                         inner,
                         ..Default::default()

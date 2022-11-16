@@ -6,4 +6,5 @@
 
 * Jiegec
 * Nitnelave
+* Hiroyuki Wada (wadahiro)
 
