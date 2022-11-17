@@ -32,7 +32,7 @@ This is a thin wrapper over the async client for minimal usage and testing.
 | bind | rfc4511  | ✅ (only simple bind will be supported) |
 | unbind | rfc4511 | ✅ |
 | search | rfc4511 | ✅ |
-| filter | rfc4511 | 🔨 (excluding ge, le, aprx, ext) |
+| filter | rfc4511 | ✅ |
 | modify | rfc4511 | ✅ |
 | add | rfc4511 | ✅ |
 | delete | rfc4511 | ✅ |

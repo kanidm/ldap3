@@ -171,7 +171,12 @@ mod tests {
                             any: vec![],
                             final_: None
                         }
-                    )
+                    ),
+                    LdapFilter::GreaterOrEqual("createTimestamp".to_string(), "20070101000000Z".to_string()),
+                    LdapFilter::LessOrEqual("createTimestamp".to_string(), "21000101000000Z".to_string()),
+                    LdapFilter::Approx("cn".to_string(), "abc".to_string()),
+                    LdapFilter::Extensible(LdapMatchingRuleAssertion { matching_rule: Some("1.2.840.113556.1.4.1941".to_string()),
+                     type_: Some("memberOf".to_string()), match_value: "cn=test,ou=groups,dc=example,dc=com".to_string(), dn_attributes: true }),
                 ]),
                 attrs: vec!["cn".to_string(), "objectClass".to_string(),],
             }),
