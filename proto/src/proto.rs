@@ -204,6 +204,14 @@ pub struct LdapSubstringFilter {
     pub final_: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LdapMatchingRuleAssertion {
+    pub matching_rule: Option<String>,
+    pub type_: Option<String>,
+    pub match_value: String,
+    pub dn_attributes: bool, // DEFAULT FALSE
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LdapFilter {
     And(Vec<LdapFilter>),
@@ -211,11 +219,11 @@ pub enum LdapFilter {
     Not(Box<LdapFilter>),
     Equality(String, String),
     Substring(String, LdapSubstringFilter),
-    //GE
-    //LE
+    GreaterOrEqual(String, String),
+    LessOrEqual(String, String),
     Present(String),
-    //Approx
-    //Extensible
+    Approx(String, String),
+    Extensible(LdapMatchingRuleAssertion),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1762,6 +1770,98 @@ impl TryFrom<StructureTag> for LdapFilter {
 
                 Ok(LdapFilter::Substring(ty, f))
             }
+            5 => {
+                let mut inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid ge filter");
+                })?;
+                inner.reverse();
+
+                let a = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid attribute in ge filter");
+                    })?;
+
+                let v = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| {
+                        if cfg!(feature = "strict") {
+                            t.match_id(Types::OctetString as u64)
+                        } else {
+                            Some(t)
+                        }
+                    })
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid value in ge filter");
+                    })?;
+
+                Ok(LdapFilter::GreaterOrEqual(a, v))
+            }
+            6 => {
+                let mut inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid le filter");
+                })?;
+                inner.reverse();
+
+                let a = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid attribute in le filter");
+                    })?;
+
+                let v = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| {
+                        if cfg!(feature = "strict") {
+                            t.match_id(Types::OctetString as u64)
+                        } else {
+                            Some(t)
+                        }
+                    })
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid value in le filter");
+                    })?;
+
+                Ok(LdapFilter::LessOrEqual(a, v))
+            }
             7 => {
                 let a = value
                     .expect_primitive()
@@ -1770,6 +1870,86 @@ impl TryFrom<StructureTag> for LdapFilter {
                         trace!("invalid pres filter");
                     })?;
                 Ok(LdapFilter::Present(a))
+            }
+            8 => {
+                let mut inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid approx filter");
+                })?;
+                inner.reverse();
+
+                let a = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid attribute in approx filter");
+                    })?;
+
+                let v = inner
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| {
+                        if cfg!(feature = "strict") {
+                            t.match_id(Types::OctetString as u64)
+                        } else {
+                            Some(t)
+                        }
+                    })
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(|bv| {
+                        String::from_utf8(bv)
+                            .map_err(|e| {
+                                trace!(?e);
+                            })
+                            .ok()
+                    })
+                    .ok_or_else(|| {
+                        trace!("invalid value in approx filter");
+                    })?;
+
+                Ok(LdapFilter::Approx(a, v))
+            }
+            9 => {
+                let inner = value.expect_constructed().ok_or_else(|| {
+                    trace!("invalid extensible filter");
+                })?;
+
+                let mut filter = LdapMatchingRuleAssertion::default();
+
+                for StructureTag { class, id, payload } in inner.into_iter().take(4) {
+                    match (class, id, payload) {
+                        (TagClass::Context, 1, PL::P(s)) => {
+                            filter.matching_rule = Some(String::from_utf8(s).map_err(|e| {
+                                trace!(?e);
+                            })?)
+                        }
+                        (TagClass::Context, 2, PL::P(s)) => {
+                            filter.type_ = Some(String::from_utf8(s).map_err(|e| {
+                                trace!(?e);
+                            })?)
+                        }
+                        (TagClass::Context, 3, PL::P(s)) => {
+                            filter.match_value = String::from_utf8(s).map_err(|e| trace!(?e))?
+                        }
+                        (TagClass::Context, 4, PL::P(s)) => {
+                            filter.dn_attributes = ber_bool_to_bool(s).unwrap_or(false);
+                        }
+                        _ => {
+                            trace!("invalid extensible filter");
+                            return Err(());
+                        }
+                    }
+                }
+
+                Ok(LdapFilter::Extensible(filter))
             }
             _ => {
                 trace!("invalid value tag");
@@ -1849,10 +2029,88 @@ impl From<LdapFilter> for Tag {
                     }),
                 ],
             }),
+            LdapFilter::GreaterOrEqual(a, v) => Tag::Sequence(Sequence {
+                id: 5,
+                class: TagClass::Context,
+                inner: vec![
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(a),
+                        ..Default::default()
+                    }),
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(v),
+                        ..Default::default()
+                    }),
+                ],
+            }),
+            LdapFilter::LessOrEqual(a, v) => Tag::Sequence(Sequence {
+                id: 6,
+                class: TagClass::Context,
+                inner: vec![
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(a),
+                        ..Default::default()
+                    }),
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(v),
+                        ..Default::default()
+                    }),
+                ],
+            }),
             LdapFilter::Present(a) => Tag::OctetString(OctetString {
                 id: 7,
                 class: TagClass::Context,
                 inner: Vec::from(a),
+            }),
+            LdapFilter::Approx(a, v) => Tag::Sequence(Sequence {
+                id: 8,
+                class: TagClass::Context,
+                inner: vec![
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(a),
+                        ..Default::default()
+                    }),
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(v),
+                        ..Default::default()
+                    }),
+                ],
+            }),
+            LdapFilter::Extensible(f) => Tag::Sequence(Sequence {
+                id: 9,
+                class: TagClass::Context,
+                inner: f
+                    .matching_rule
+                    .into_iter()
+                    .map(|v| {
+                        Tag::OctetString(OctetString {
+                            inner: Vec::from(v),
+                            id: 1,
+                            class: TagClass::Context,
+                        })
+                    })
+                    .chain(f.type_.into_iter().map(|v| {
+                        Tag::OctetString(OctetString {
+                            inner: Vec::from(v),
+                            id: 2,
+                            class: TagClass::Context,
+                        })
+                    }))
+                    .chain(once({
+                        Tag::OctetString(OctetString {
+                            inner: Vec::from(f.match_value),
+                            id: 3,
+                            class: TagClass::Context,
+                        })
+                    }))
+                    .chain(once({
+                        Tag::Boolean(Boolean {
+                            inner: f.dn_attributes,
+                            id: 4,
+                            class: TagClass::Context,
+                        })
+                    }))
+                    .collect(),
             }),
         }
     }
