@@ -1,0 +1,23 @@
+
+use crate::proto::LdapFilter;
+
+grammar;
+
+pub Expr: LdapFilter = {
+    <AttributeDescription> "=" "*" => LdapFilter::Present(<>),
+    <AttributeDescription> "=" <AssertionValue> => LdapFilter::Equality(<>),
+
+    "!" <t:Term> => LdapFilter::Not(Box::new(t)),
+    "&" <v:(<Term>)+> => LdapFilter::And(v),
+    "|" <v:(<Term>)+> => LdapFilter::Or(v),
+}
+
+pub Term: LdapFilter = {
+    "(" <e:Expr> ")" => e,
+};
+
+AttributeDescription: String = <s:r"[a-zA-Z\-\.]+"> => String::from(s);
+AssertionValue: String = <s:r"[a-zA-Z\-\.]+"> => String::from(s);
+
+
+

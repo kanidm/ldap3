@@ -1,25 +1,13 @@
 //! LDAP Filter Parser
 
 use crate::LdapFilter;
-use nom::character::complete;
-use nom::sequence::{delimited, separated_pair};
 
-use nom::bytes::complete::is_not;
-
-fn expr_parser<'a>(f: &'a str) -> nom::IResult<&'a str, LdapFilter> {
-    // We have some inner expression. Can we match what it is?
-    separated_pair(is_not("="), complete::char('='), complete::char('*'))(f).map(
-        |(rem, (pres_attr, _))| {
-            trace!(?pres_attr);
-            (rem, LdapFilter::Present(pres_attr.to_string()))
-        },
-    )
-}
+lalrpop_mod!(pub ldapfilter);
 
 pub fn parse_ldap_filter_str(f: &str) -> Result<LdapFilter, ()> {
-    delimited(complete::char('('), expr_parser, complete::char(')'))(f)
-        .map(|(rem, filter)| {
-            trace!(%rem);
+    ldapfilter::TermParser::new().parse(f)
+        .map(|filter| {
+            trace!(?filter);
             filter
         })
         .map_err(|e| {
@@ -36,7 +24,69 @@ mod test {
     fn test_objectclass_pres() {
         let _ = tracing_subscriber::fmt::try_init();
         let f = parse_ldap_filter_str("(objectClass=*)").expect("Failed to parse filter");
-
+        eprintln!("{:?}", f);
         assert!(f == LdapFilter::Present("objectClass".to_string()));
     }
+
+    #[test]
+    fn test_objectclass_eq() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let f = parse_ldap_filter_str("(objectClass=test)").expect("Failed to parse filter");
+        eprintln!("{:?}", f);
+        assert!(f == LdapFilter::Equality("objectClass".to_string(), "test".to_string()));
+    }
+
+    #[test]
+    fn test_objectclass_not() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let f = parse_ldap_filter_str("(!(objectClass=test))").expect("Failed to parse filter");
+        eprintln!("{:?}", f);
+        assert!(f == 
+            LdapFilter::Not(
+                Box::new(LdapFilter::Equality("objectClass".to_string(), "test".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_objectclass_and() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let f = parse_ldap_filter_str("(&(objectClass=*))").expect("Failed to parse filter");
+        eprintln!("{:?}", f);
+        assert!(f == 
+            LdapFilter::And(vec![
+            LdapFilter::Present("objectClass".to_string())
+            ])
+        );
+
+        let f = parse_ldap_filter_str("(&(objectClass=*)(uid=*))").expect("Failed to parse filter");
+        eprintln!("{:?}", f);
+        assert!(f == 
+            LdapFilter::And(vec![
+            LdapFilter::Present("objectClass".to_string()),
+            LdapFilter::Present("uid".to_string())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_objectclass_or() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let f = parse_ldap_filter_str("(|(objectClass=*))").expect("Failed to parse filter");
+        eprintln!("{:?}", f);
+        assert!(f == 
+            LdapFilter::Or(vec![
+            LdapFilter::Present("objectClass".to_string())
+            ])
+        );
+
+        let f = parse_ldap_filter_str("(|(objectClass=*)(uid=*))").expect("Failed to parse filter");
+        eprintln!("{:?}", f);
+        assert!(f == 
+            LdapFilter::Or(vec![
+            LdapFilter::Present("objectClass".to_string()),
+            LdapFilter::Present("uid".to_string())
+            ])
+        );
+    }
+
 }

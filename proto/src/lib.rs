@@ -15,6 +15,9 @@
 #[macro_use]
 extern crate tracing;
 
+#[macro_use]
+extern crate lalrpop_util;
+
 pub mod filter;
 pub mod proto;
 pub mod simple;
