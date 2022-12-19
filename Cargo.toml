@@ -30,11 +30,13 @@ clap = "^3.2"
 clap_complete = "^3.2.3"
 futures = "^0.3.21"
 futures-util = "^0.3.21"
+lalrpop = "^0.19.7"
+lalrpop-util = "^0.19"
 lber = "^0.3.0"
 ldap3_client = { path = "./client" }
 ldap3_proto = { path = "./proto" }
-nom = "^7.1.1"
 openssl = "^0.10.38"
+regex = "1"
 ron = "^0.8.0"
 rpassword = "7.0.0"
 serde = { version = "^1.0.136", features = ["derive"] }

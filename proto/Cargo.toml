@@ -16,11 +16,15 @@ strict = []
 
 [dependencies]
 bytes.workspace = true
+lalrpop-util = { workspace = true, features = ["lexer"] }
 lber.workspace = true
-nom.workspace = true
+regex.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
 tracing.workspace = true
 uuid.workspace = true
+
+[build-dependencies]
+lalrpop.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
