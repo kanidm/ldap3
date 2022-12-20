@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
 use crate::LdapClient;
 use crate::*;
 use base64urlsafedata::Base64UrlSafeData;
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub enum LdapSyncStateValue {
@@ -16,13 +15,12 @@ impl From<SyncStateValue> for LdapSyncStateValue {
     fn from(v: SyncStateValue) -> LdapSyncStateValue {
         match v {
             SyncStateValue::Present => LdapSyncStateValue::Present,
-            SyncStateValue::Add     => LdapSyncStateValue::Add,
-            SyncStateValue::Modify  => LdapSyncStateValue::Modify,
-            SyncStateValue::Delete  => LdapSyncStateValue::Delete,
+            SyncStateValue::Add => LdapSyncStateValue::Add,
+            SyncStateValue::Modify => LdapSyncStateValue::Modify,
+            SyncStateValue::Delete => LdapSyncStateValue::Delete,
         }
     }
 }
-
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LdapSyncReplEntry {
