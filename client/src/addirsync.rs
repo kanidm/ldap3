@@ -1,6 +1,6 @@
-use base64urlsafedata::Base64UrlSafeData;
 use crate::LdapClient;
 use crate::*;
+use base64urlsafedata::Base64UrlSafeData;
 
 #[derive(Debug)]
 pub struct LdapSyncReplEntry {

@@ -6,7 +6,10 @@ grammar;
 pub Expr: LdapFilter = {
     <AttributeDescription> "=" "*" => LdapFilter::Present(<>),
     <AttributeDescription> "=" <AssertionValue> => LdapFilter::Equality(<>),
-
+    <AttributeDescription> ">" "=" <AssertionValue> => LdapFilter::GreaterOrEqual(<>),
+    <AttributeDescription> "<" "=" <AssertionValue> => LdapFilter::LessOrEqual(<>),
+    <AttributeDescription> "~" "=" <AssertionValue> => LdapFilter::Approx(<>),
+    // Substring - todo!
     "!" <t:Term> => LdapFilter::Not(Box::new(t)),
     "&" <v:(<Term>)+> => LdapFilter::And(v),
     "|" <v:(<Term>)+> => LdapFilter::Or(v),

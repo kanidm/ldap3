@@ -27,9 +27,9 @@ use ldap3_proto::LdapCodec;
 use openssl::ssl::{Ssl, SslConnector, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use tokio_openssl::SslStream;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
@@ -44,7 +44,7 @@ mod addirsync;
 mod search;
 mod syncrepl;
 
-pub use syncrepl::{ LdapSyncRepl, LdapSyncReplEntry, LdapSyncStateValue};
+pub use syncrepl::{LdapSyncRepl, LdapSyncReplEntry, LdapSyncStateValue};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[repr(i32)]
@@ -269,19 +269,16 @@ impl<'a> LdapClientBuilder<'a> {
         self
     }
 
-    pub fn add_tls_ca(mut self, ca: &'a dyn AsRef<Path>) -> Self {
+    pub fn add_tls_ca<T>(mut self, ca: &'a T) -> Self
+        where T: AsRef<Path>
+    {
         self.cas.push(ca.as_ref());
         self
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn build(self) -> LdapResult<LdapClient> {
-
-        let LdapClientBuilder {
-            url,
-            timeout,
-            cas
-        } = self;
+        let LdapClientBuilder { url, timeout, cas } = self;
 
         info!(%url);
         info!(?timeout);
@@ -348,7 +345,6 @@ impl<'a> LdapClientBuilder<'a> {
 
         // If ldaps - start openssl
         let (write_transport, read_transport) = if need_tls {
-
             let mut tls_parms = SslConnector::builder(SslMethod::tls_client()).map_err(|e| {
                 error!(?e, "openssl");
                 LdapError::TlsError
@@ -356,34 +352,31 @@ impl<'a> LdapClientBuilder<'a> {
 
             let cert_store = tls_parms.cert_store_mut();
             for ca in cas.iter() {
-                let mut file = File::open(ca)
-                    .map_err(|e| {
-                        error!(?e, "Unable to open {:?}", ca);
-                        LdapError::FileIOError
-                    })?;
+                let mut file = File::open(ca).map_err(|e| {
+                    error!(?e, "Unable to open {:?}", ca);
+                    LdapError::FileIOError
+                })?;
 
                 let mut pem = Vec::new();
-                file.read_to_end(&mut pem)
+                file.read_to_end(&mut pem).map_err(|e| {
+                    error!(?e, "Unable to read {:?}", ca);
+                    LdapError::FileIOError
+                })?;
+
+                let ca_cert = X509::from_pem(pem.as_slice()).map_err(|e| {
+                    error!(?e, "openssl");
+                    LdapError::TlsError
+                })?;
+
+                cert_store
+                    .add_cert(ca_cert)
+                    .map(|()| {
+                        info!("Added {:?} to cert store", ca);
+                    })
                     .map_err(|e| {
-                        error!(?e, "Unable to read {:?}", ca);
-                        LdapError::FileIOError
+                        error!(?e, "openssl");
+                        LdapError::TlsError
                     })?;
-
-
-                let ca_cert = X509::from_pem(pem.as_slice())
-                .map_err(|e| {
-                    error!(?e, "openssl");
-                    LdapError::TlsError
-                })?;
-
-                cert_store.add_cert(ca_cert)
-                .map(|()| {
-                    info!("Added {:?} to cert store", ca);
-                })
-                .map_err(|e| {
-                    error!(?e, "openssl");
-                    LdapError::TlsError
-                })?;
             }
 
             tls_parms.set_verify(SslVerifyMode::PEER);

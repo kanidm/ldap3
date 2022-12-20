@@ -12,8 +12,8 @@
 #![allow(clippy::expect_used)]
 
 use clap::Parser;
-use ldap3_client::*;
 use ldap3_client::proto::LdapFilter;
+use ldap3_client::*;
 
 include!("./ldap_opt.rs");
 
@@ -60,8 +60,7 @@ async fn main() {
         }
     };
 
-    let mut client = match LdapClientBuilder::new(&opt.url)
-        .build().await {
+    let mut client = match LdapClientBuilder::new(&opt.url).build().await {
         Ok(c) => c,
         Err(e) => {
             if opt.json {
@@ -275,7 +274,8 @@ async fn main() {
                     println!("");
                     println!(
                         "cookie: {}",
-                        sync_repl.cookie
+                        sync_repl
+                            .cookie
                             .map(|bin| base64::encode_config(&bin, base64::STANDARD_NO_PAD))
                             .unwrap_or_else(|| "NONE".to_string())
                     );
