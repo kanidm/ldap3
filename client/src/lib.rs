@@ -270,7 +270,8 @@ impl<'a> LdapClientBuilder<'a> {
     }
 
     pub fn add_tls_ca<T>(mut self, ca: &'a T) -> Self
-        where T: AsRef<Path>
+    where
+        T: AsRef<Path>,
     {
         self.cas.push(ca.as_ref());
         self

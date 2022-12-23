@@ -2,24 +2,122 @@
 
 use crate::LdapFilter;
 
-lalrpop_mod!(pub ldapfilter);
+peg::parser! {
+    grammar ldapfilter() for str {
+
+        pub rule parse() -> LdapFilter =
+            separator()* "(" e:term() ")" separator()* { e }
+
+        rule term() -> LdapFilter =
+            not()
+            / and()
+            / or()
+            / pres()
+            / gte()
+            / lte()
+            / approx()
+            / eq()
+
+        rule not() -> LdapFilter =
+            separator()* "!" f:parse() { LdapFilter::Not(Box::new(f)) }
+
+        rule and() -> LdapFilter =
+            separator()* "&" v:(parse()+) { LdapFilter::And(v) }
+
+        rule or() -> LdapFilter =
+            separator()* "|" v:(parse()+) { LdapFilter::Or(v) }
+
+        rule pres() -> LdapFilter =
+            a:attr() "=" "*" { LdapFilter::Present(a) }
+
+        rule gte() -> LdapFilter =
+            a:attr() ">=" v:value() { LdapFilter::GreaterOrEqual(a, v) }
+
+        rule lte() -> LdapFilter =
+            a:attr() "<=" v:value() { LdapFilter::LessOrEqual(a, v) }
+
+        rule approx() -> LdapFilter =
+            a:attr() "~=" v:value() { LdapFilter::Approx(a, v) }
+
+        rule eq() -> LdapFilter =
+            a:attr() "=" v:value() { LdapFilter::Equality(a, v) }
+
+        rule separator()
+          = ['\n' | ' ' | '\t' ]
+
+        rule operator()
+          = ['=' | '*' | '\n' | ' ' | '\t' | '(' | ')' | '~' | '>' | '<' | '!' | '&' | '|' ]
+
+        rule attr() -> String =
+            separator()* s:attrdesc() separator()* { s }
+
+        rule value() -> String =
+            separator()* s:octetstr() separator()* { s }
+
+        // Should this actually be vec<u8>?
+        // Probably isn't rfc compliant, but we have to avoid special chars unless quoted.
+        pub(crate) rule octetstr() -> String =
+            quotedoctetstr() / bareoctetstr()
+
+        rule quotedoctetstr() -> String =
+            "\"" s:$((!"\""[_])*) "\"" { s.to_string() }
+
+        rule bareoctetstr() -> String =
+            s:$((!operator()[_])*) { s.to_string() }
+
+        // Per the rfc this also could be an oid with types/options, but lazy for now.
+        pub(crate) rule attrdesc() -> String =
+            a:descr()
+
+        // descr is:
+        //   keystring = leadkeychar *keychar
+        //   leadkeychar = ALPHA
+        //   keychar = ALPHA / DIGIT / HYPHEN
+        rule descr() -> String =
+            s:$([ 'a'..='z' | 'A'..='Z']['a'..='z' | 'A'..='Z' | '0'..='9' | '-' ]*) { s.to_string() }
+    }
+}
 
 pub fn parse_ldap_filter_str(f: &str) -> Result<LdapFilter, ()> {
-    ldapfilter::TermParser::new()
-        .parse(f)
-        .map(|filter| {
-            trace!(?filter);
-            filter
-        })
-        .map_err(|e| {
-            error!(?e, "Unable to parse LDAP Filter");
-        })
+    ldapfilter::parse(f).map_err(|e| {
+        debug!("{:?}", e);
+        ()
+    })
 }
 
 #[cfg(test)]
 mod test {
-    use super::parse_ldap_filter_str;
+    use super::*;
     use crate::LdapFilter;
+
+    #[test]
+    fn test_attrdesc() {
+        assert_eq!(ldapfilter::attrdesc("abcd"), Ok("abcd".to_string()));
+        assert_eq!(ldapfilter::attrdesc("a-b-1-d"), Ok("a-b-1-d".to_string()));
+
+        // can't be 0 char
+        assert!(ldapfilter::attrdesc("").is_err());
+        // can't start with num or -
+        assert!(ldapfilter::attrdesc("-abcd").is_err());
+        assert!(ldapfilter::attrdesc("1abcd").is_err());
+    }
+
+    #[test]
+    fn test_octetstr() {
+        assert_eq!(ldapfilter::octetstr("abcd"), Ok("abcd".to_string()));
+        // Can't be empty.
+        assert!(ldapfilter::attrdesc("").is_err());
+        // Fails with operator chars
+        assert!(ldapfilter::attrdesc("*").is_err());
+        assert!(ldapfilter::attrdesc("a=b").is_err());
+
+        // works when quoted
+        assert_eq!(ldapfilter::octetstr("\"*\""), Ok("*".to_string()));
+        assert_eq!(
+            ldapfilter::octetstr("\"lol=lol\""),
+            Ok("lol=lol".to_string())
+        );
+    }
 
     #[test]
     fn test_ldapfilter_pres() {
