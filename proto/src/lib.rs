@@ -518,4 +518,17 @@ mod tests {
             }],
         });
     }
+
+    #[test]
+    fn test_ldapserver_compare_request() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::CompareRequest(LdapCompareRequest {
+                dn: "dc=example,dc=com".to_string(),
+                atype: "uid".to_string(),
+                val: "william".as_bytes().to_vec(),
+            }),
+            ctrl: vec![],
+        });
+    }
 }

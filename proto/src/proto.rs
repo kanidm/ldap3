@@ -152,6 +152,9 @@ pub enum LdapOp {
     // https://datatracker.ietf.org/doc/html/rfc4511#section-4.9
     ModifyDNRequest(LdapModifyDNRequest),
     ModifyDNResponse(LdapResult),
+    // https://www.rfc-editor.org/rfc/rfc4511#section-4.10
+    CompareRequest(LdapCompareRequest),
+    CompareResult(LdapResult),
     // https://tools.ietf.org/html/rfc4511#section-4.11
     AbandonRequest(i32),
     // https://tools.ietf.org/html/rfc4511#section-4.12
@@ -287,6 +290,13 @@ pub struct LdapModifyDNRequest {
     pub newrdn: String,
     pub deleteoldrdn: bool,
     pub new_superior: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LdapCompareRequest {
+    pub dn: String,
+    pub atype: String,
+    pub val: Vec<u8>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -803,6 +813,10 @@ impl TryFrom<StructureTag> for LdapOp {
             (13, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::ModifyDNResponse(lr))
             }
+            (14, PL::C(inner)) => LdapCompareRequest::try_from(inner).map(LdapOp::CompareRequest),
+            (15, PL::C(inner)) => {
+                LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::CompareResult(lr))
+            }
             (16, PL::P(inner)) => ber_integer_to_i64(inner)
                 .ok_or(())
                 .map(|s| LdapOp::AbandonRequest(s as i32)),
@@ -892,6 +906,16 @@ impl From<LdapOp> for Tag {
             LdapOp::ModifyDNResponse(lr) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
                 id: 13,
+                inner: lr.into(),
+            }),
+            LdapOp::CompareRequest(cr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 14,
+                inner: cr.into(),
+            }),
+            LdapOp::CompareResult(lr) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 15,
                 inner: lr.into(),
             }),
             LdapOp::AbandonRequest(id) => Tag::Integer(Integer {
@@ -3024,6 +3048,71 @@ impl TryFrom<Vec<StructureTag>> for LdapModifyDNRequest {
             deleteoldrdn,
             new_superior,
         })
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapCompareRequest {
+    type Error = ();
+
+    fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        value.reverse();
+
+        let dn = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        let mut ava = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::Sequence as u64))
+            .and_then(|t| t.expect_constructed())
+            .ok_or(())?;
+
+        let val = ava
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .ok_or(())?;
+
+        let atype = ava
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(())?;
+
+        Ok(Self { dn, atype, val })
+    }
+}
+
+impl From<LdapCompareRequest> for Vec<Tag> {
+    fn from(value: LdapCompareRequest) -> Vec<Tag> {
+        let LdapCompareRequest { dn, atype, val } = value;
+        vec![
+            Tag::OctetString(OctetString {
+                inner: Vec::from(dn),
+                ..Default::default()
+            }),
+            Tag::Sequence(Sequence {
+                inner: vec![
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(atype),
+                        ..Default::default()
+                    }),
+                    Tag::OctetString(OctetString {
+                        inner: Vec::from(val),
+                        ..Default::default()
+                    }),
+                ],
+                ..Default::default()
+            }),
+        ]
     }
 }
 
