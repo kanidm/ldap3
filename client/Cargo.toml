@@ -25,7 +25,7 @@ futures-util = { workspace = true, features = ["sink"] }
 ldap3_proto.workspace = true
 serde= { workspace = true, features = ["derive"] }
 openssl.workspace = true
-tokio = { workspace = true, features = ["net", "time", "sync", "io-util"] }
+tokio = { workspace = true, features = ["net", "time", "sync", "io-util", "macros"] }
 tokio-util = { workspace = true, features = ["codec"] }
 tokio-openssl.workspace = true
 tracing.workspace = true

@@ -25,7 +25,7 @@ impl LdapClient {
                 timelimit: 0,
                 typesonly: false,
                 filter,
-                attrs: vec![],
+                attrs: vec!["*".to_string(), "+".to_string()],
             }),
             ctrl: vec![],
         };

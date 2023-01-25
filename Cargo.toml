@@ -11,7 +11,7 @@ members = [
 
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 authors = [
     "William Brown <william@blackhats.net.au>",
     ]
@@ -31,8 +31,8 @@ clap_complete = "^3.2.3"
 futures = "^0.3.21"
 futures-util = "^0.3.21"
 lber = "^0.3.0"
-ldap3_client = { path = "./client" }
-ldap3_proto = { path = "./proto" }
+ldap3_client = { path = "./client", version = "0.3.1" }
+ldap3_proto = { path = "./proto", version = "0.3.1" }
 peg = "0.8.1"
 openssl = "^0.10.38"
 ron = "^0.8.0"
