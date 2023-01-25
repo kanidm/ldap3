@@ -26,6 +26,14 @@ enum LdapAction {
         /// Execute this query
         filter: String,
     },
+    /*
+    FilterHelper {
+        /// The filter to examine.
+        filter: String,
+        /// The filter to compare to.
+        filter_comp: Option<String>,
+    },
+    */
     /// Check authentication (bind) to a directory server
     Whoami,
     /// Sync a listed subtree from FreeIPA, OpenLDAP or 389-ds

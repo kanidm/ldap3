@@ -148,6 +148,25 @@ async fn main() {
                 std::process::exit(e as i32);
             }
         },
+        /*
+        LdapAction::FilterHelper { filter, filter_comp } => {
+            let filter = ldap3_client::filter::parse_ldap_filter_str(&filter)
+                .map_err(|e| {
+                    error!(?e);
+                })
+                .expect("Invalid filter");
+
+            if let Some(filter_comp) = filter_comp {
+                let filter_comp = ldap3_client::filter::parse_ldap_filter_str(&filter_comp)
+                    .map_err(|e| {
+                        error!(?e);
+                    })
+                    .expect("Invalid filter");
+
+                println!("compare: {}", filter == filter_comp);
+            }
+        }
+        */
         LdapAction::Syncrepl {
             basedn,
             cookie,
