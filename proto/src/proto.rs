@@ -8,7 +8,6 @@ use lber::universal::Types;
 use lber::write as lber_write;
 
 use lber::parse::Parser;
-use lber::{Consumer, ConsumerState, Input};
 
 use bytes::BytesMut;
 use uuid::Uuid;
@@ -443,8 +442,8 @@ impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
         };
 
         let mut parser = Parser::new();
-        let (_size, msg) = match *parser.handle(Input::Element(buf)) {
-            ConsumerState::Done(size, ref msg) => (size, msg),
+        let (_rem, msg) = match parser.parse(buf) {
+            Ok(v) => v,
             _ => return Err(()),
         };
 
@@ -521,8 +520,8 @@ impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
         };
 
         let mut parser = Parser::new();
-        let (_size, msg) = match *parser.handle(Input::Element(buf)) {
-            ConsumerState::Done(size, ref msg) => (size, msg),
+        let (_rem, msg) = match parser.parse(buf) {
+            Ok(v) => v,
             _ => return Err(()),
         };
 
@@ -572,36 +571,28 @@ impl LdapMsg {
 
     pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, ()> {
         let mut parser = lber::parse::Parser::new();
-        let (taken, msgid_tag) = match *parser.handle(lber::Input::Element(bytes)) {
-            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => {
-                (size, Some(msg.clone()))
-            }
+        let (r1_bytes, msgid_tag) = match parser.parse(bytes) {
+            Ok(v) => v,
             _ => return Err(()),
         };
 
-        let (_, r_bytes) = bytes.split_at(taken);
-        let (taken, op_tag) = match *parser.handle(lber::Input::Element(r_bytes)) {
-            lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => {
-                (size, Some(msg.clone()))
-            }
+        let (r2_bytes, op_tag) = match parser.parse(r1_bytes) {
+            Ok(v) => v,
             _ => return Err(()),
         };
 
-        let (_, r_bytes) = r_bytes.split_at(taken);
-        let (_taken, ctrl_tag) = if r_bytes.is_empty() {
-            (0, None)
+        let ctrl_tag = if r2_bytes.is_empty() {
+            None
         } else {
-            match *parser.handle(lber::Input::Element(r_bytes)) {
-                lber::ConsumerState::Done(lber::Move::Consume(size), ref msg) => {
-                    (size, Some(msg.clone()))
-                }
+            match parser.parse(r2_bytes) {
+                Ok((_rem, ctrl_tag)) => Some(ctrl_tag),
                 _ => return Err(()),
             }
         };
 
         // The first item should be the messageId
         let msgid = msgid_tag
-            .and_then(|t| t.match_class(TagClass::Universal))
+            .match_class(TagClass::Universal)
             .and_then(|t| t.match_id(Types::Integer as u64))
             // Get the raw bytes
             .and_then(|t| t.expect_primitive())
@@ -610,8 +601,8 @@ impl LdapMsg {
             .map(|i| i as i32)
             .ok_or(())?;
 
-        let op = op_tag.ok_or(())?;
-        let op = LdapOp::try_from(op)?;
+        // let op = op_tag.ok_or(())?;
+        let op = LdapOp::try_from(op_tag)?;
 
         let ctrl = ctrl_tag
             .and_then(|t| t.match_class(TagClass::Context))
@@ -1002,8 +993,8 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
-                    ConsumerState::Done(size, ref msg) => (size, msg),
+                let (_rem, value) = match parser.parse(&value_ber) {
+                    Ok(v) => v,
                     _ => return Err(()),
                 };
 
@@ -1057,8 +1048,8 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
-                    ConsumerState::Done(size, ref msg) => (size, msg),
+                let (_rem, value) = match parser.parse(&value_ber) {
+                    Ok(v) => v,
                     _ => return Err(()),
                 };
 
@@ -1117,8 +1108,8 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
-                    ConsumerState::Done(size, ref msg) => (size, msg),
+                let (_rem, value) = match parser.parse(&value_ber) {
+                    Ok(v) => v,
                     _ => return Err(()),
                 };
 
@@ -1153,8 +1144,8 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
-                    ConsumerState::Done(size, ref msg) => (size, msg),
+                let (_rem, value) = match parser.parse(&value_ber) {
+                    Ok(v) => v,
                     _ => return Err(()),
                 };
 
@@ -1198,8 +1189,8 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_size, value) = match *parser.handle(Input::Element(&value_ber)) {
-                    ConsumerState::Done(size, ref msg) => (size, msg),
+                let (_rem, value) = match parser.parse(&value_ber) {
+                    Ok(v) => v,
                     _ => return Err(()),
                 };
 
@@ -2622,8 +2613,8 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
             (Some("1.3.6.1.4.1.4203.1.9.1.4"), Some(buf)) => {
                 // It's a sync info done. Start to process the value.
                 let mut parser = Parser::new();
-                let (_size, msg) = match *parser.handle(Input::Element(buf)) {
-                    ConsumerState::Done(size, ref msg) => (size, msg),
+                let (_rem, msg) = match parser.parse(buf) {
+                    Ok(v) => v,
                     _ => return Err(()),
                 };
 

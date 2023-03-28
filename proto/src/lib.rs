@@ -23,10 +23,9 @@ use bytes::{Buf, BytesMut};
 use lber::parse::Parser;
 use lber::structure::StructureTag;
 use lber::write as lber_write;
-use lber::{Consumer, ConsumerState, Input, Move};
-use std::convert::TryFrom;
 use std::io;
 use tokio_util::codec::{Decoder, Encoder};
+use tracing::{error, trace};
 
 pub use crate::filter::parse_ldap_filter_str;
 use crate::proto::LdapMsg;
@@ -41,19 +40,22 @@ impl Decoder for LdapCodec {
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // How many bytes to consume?
         let mut parser = Parser::new();
-        let (size, msg) = match *parser.handle(Input::Element(buf)) {
-            ConsumerState::Continue(_) => return Ok(None),
-            ConsumerState::Error(_e) => {
-                return Err(io::Error::new(io::ErrorKind::Other, "lber parser"))
+        let (rem, msg) = match parser.parse(buf) {
+            Ok(r) => r,
+            // Need more data
+            Err(nom::Err::Incomplete(want)) => {
+                trace!(?want, "incomplete");
+                return Ok(None);
             }
-            ConsumerState::Done(size, ref msg) => (size, msg),
+            Err(e) => {
+                error!(err = ?e, "lber parser");
+                return Err(io::Error::new(io::ErrorKind::Other, "lber parser"));
+            }
         };
-        // Consume that
-        let size = match size {
-            Move::Await(_) => return Ok(None),
-            Move::Seek(_) => return Err(io::Error::new(io::ErrorKind::Other, "lber seek")),
-            Move::Consume(s) => s,
-        };
+
+        // Consume how much is left over?
+        let size = buf.len() - rem.len();
+
         // helper for when we need to debug inputs.
         trace!("{:?}", buf.to_vec());
         if size == buf.len() {
@@ -366,17 +368,16 @@ mod tests {
 
     #[test]
     fn test_modify_from_raw() {
-        use lber::Consumer;
         use std::convert::TryFrom;
 
         let mut parser = lber::parse::Parser::new();
-        let (_size, msg) = match *parser.handle(lber::Input::Element(&[
+        let (_rem, msg) = match parser.parse(&[
             48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101, 110,
             44, 111, 117, 61, 80, 101, 111, 112, 108, 101, 44, 100, 99, 61, 101, 120, 97, 109, 112,
             108, 101, 44, 100, 99, 61, 99, 111, 109, 48, 21, 48, 19, 10, 1, 2, 48, 14, 4, 2, 115,
             110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115,
-        ])) {
-            lber::ConsumerState::Done(size, ref msg) => (size, msg),
+        ]) {
+            Ok(v) => v,
             _ => panic!(),
         };
         let op = LdapMsg::try_from(msg.clone()).expect("failed to decode");
@@ -424,17 +425,16 @@ mod tests {
 
     #[test]
     fn test_syncrepl_result_from_raw() {
-        use lber::Consumer;
         use std::convert::TryFrom;
 
         let _ = tracing_subscriber::fmt::try_init();
 
         let mut parser = lber::parse::Parser::new();
-        let (_size, msg) = match *parser.handle(lber::Input::Element(&[
+        let (_rem, msg) = match parser.parse(&[
             48, 35, 2, 1, 2, 101, 30, 10, 2, 16, 0, 4, 0, 4, 22, 73, 110, 118, 97, 108, 105, 100,
             32, 115, 101, 115, 115, 105, 111, 110, 32, 99, 111, 111, 107, 105, 101,
-        ])) {
-            lber::ConsumerState::Done(size, ref msg) => (size, msg),
+        ]) {
+            Ok(v) => v,
             _ => panic!(),
         };
         let op = LdapMsg::try_from(msg.clone()).expect("failed to decode");
@@ -530,5 +530,24 @@ mod tests {
             }),
             ctrl: vec![],
         });
+    }
+
+    #[test]
+    fn test_message_partial() {
+        let mut parser = lber::parse::Parser::new();
+        match parser.parse(&[
+            48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101, 110,
+            44, 111, 117, 61, 80, 101, 111, 112, 108, 101, 44, 100, 99, 61, 101, 120, 97, 109, 112,
+            108, 101, 44, 100, 99,
+            61,
+            // 99, 111, 109, 48, 21, 48, 19, 10, 1, 2, 48, 14, 4, 2, 115,
+            // 110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115,
+        ]) {
+            Err(nom::Err::Incomplete(_)) => {}
+            r => {
+                eprintln!("{:?}", r);
+                panic!()
+            }
+        };
     }
 }
