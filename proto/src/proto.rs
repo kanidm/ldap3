@@ -418,7 +418,8 @@ impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
 
         let mut bytes = BytesMut::new();
 
-        lber_write::encode_into(&mut bytes, tag.into_structure()).unwrap();
+        lber_write::encode_into(&mut bytes, tag.into_structure())
+            .expect("Failed to encode inner structure, this is a bug!");
 
         LdapExtendedRequest {
             name: "1.3.6.1.4.1.4203.1.11.1".to_string(),
@@ -442,13 +443,9 @@ impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
         };
 
         let mut parser = Parser::new();
-        let (_rem, msg) = match parser.parse(buf) {
-            Ok(v) => v,
-            _ => return Err(()),
-        };
+        let (_rem, msg) = parser.parse(buf).map_err(|_| ())?;
 
         let seq = msg
-            .clone()
             .match_id(Types::Sequence as u64)
             .and_then(|t| t.expect_constructed())
             .ok_or(())?;
@@ -495,7 +492,8 @@ impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
 
         let mut bytes = BytesMut::new();
 
-        lber_write::encode_into(&mut bytes, tag.into_structure()).unwrap();
+        lber_write::encode_into(&mut bytes, tag.into_structure())
+            .expect("Failed to encode inner structure, this is a bug!");
 
         LdapExtendedResponse {
             res: value.res,
@@ -520,13 +518,9 @@ impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
         };
 
         let mut parser = Parser::new();
-        let (_rem, msg) = match parser.parse(buf) {
-            Ok(v) => v,
-            _ => return Err(()),
-        };
+        let (_rem, msg) = parser.parse(buf).map_err(|_| ())?;
 
         let mut seq = msg
-            .clone()
             .match_id(Types::Sequence as u64)
             .and_then(|t| t.expect_constructed())
             .ok_or(())?;
@@ -571,23 +565,17 @@ impl LdapMsg {
 
     pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, ()> {
         let mut parser = lber::parse::Parser::new();
-        let (r1_bytes, msgid_tag) = match parser.parse(bytes) {
-            Ok(v) => v,
-            _ => return Err(()),
-        };
+        let (r1_bytes, msgid_tag) = parser.parse(bytes).map_err(|_| ())?;
 
-        let (r2_bytes, op_tag) = match parser.parse(r1_bytes) {
-            Ok(v) => v,
-            _ => return Err(()),
-        };
+        let (r2_bytes, op_tag) = parser.parse(r1_bytes).map_err(|_| ())?;
 
         let ctrl_tag = if r2_bytes.is_empty() {
             None
         } else {
-            match parser.parse(r2_bytes) {
-                Ok((_rem, ctrl_tag)) => Some(ctrl_tag),
-                _ => return Err(()),
-            }
+            parser
+                .parse(r2_bytes)
+                .map(|(_rem, tag)| Some(tag))
+                .map_err(|_| ())?
         };
 
         // The first item should be the messageId
@@ -601,7 +589,6 @@ impl LdapMsg {
             .map(|i| i as i32)
             .ok_or(())?;
 
-        // let op = op_tag.ok_or(())?;
         let op = LdapOp::try_from(op_tag)?;
 
         let ctrl = ctrl_tag
@@ -693,12 +680,10 @@ impl TryFrom<StructureTag> for LdapMsg {
             .map(|i| i as i32)
             .ok_or_else(|| {
                 error!("Invalid msgid");
-                ()
             })?;
 
         let op = op_tag.ok_or_else(|| {
             error!("No ldap op present");
-            ()
         })?;
         let op = LdapOp::try_from(op)?;
 
@@ -993,12 +978,9 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = match parser.parse(&value_ber) {
-                    Ok(v) => v,
-                    _ => return Err(()),
-                };
+                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
 
-                let mut value = value.clone().expect_constructed().ok_or(())?;
+                let mut value = value.expect_constructed().ok_or(())?;
 
                 value.reverse();
 
@@ -1048,12 +1030,9 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = match parser.parse(&value_ber) {
-                    Ok(v) => v,
-                    _ => return Err(()),
-                };
+                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
 
-                let mut value = value.clone().expect_constructed().ok_or(())?;
+                let mut value = value.expect_constructed().ok_or(())?;
 
                 value.reverse();
 
@@ -1081,7 +1060,6 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|v| {
                         Uuid::from_slice(&v).map_err(|_| {
                             error!("Invalid syncUUID");
-                            ()
                         })
                     })?;
 
@@ -1108,12 +1086,9 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = match parser.parse(&value_ber) {
-                    Ok(v) => v,
-                    _ => return Err(()),
-                };
+                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
 
-                let mut value = value.clone().expect_constructed().ok_or(())?;
+                let mut value = value.expect_constructed().ok_or(())?;
 
                 value.reverse();
 
@@ -1144,12 +1119,9 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = match parser.parse(&value_ber) {
-                    Ok(v) => v,
-                    _ => return Err(()),
-                };
+                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
 
-                let mut value = value.clone().expect_constructed().ok_or(())?;
+                let mut value = value.expect_constructed().ok_or(())?;
 
                 value.reverse();
 
@@ -1189,12 +1161,9 @@ impl TryFrom<StructureTag> for LdapControl {
                     .ok_or(())?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = match parser.parse(&value_ber) {
-                    Ok(v) => v,
-                    _ => return Err(()),
-                };
+                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
 
-                let mut value = value.clone().expect_constructed().ok_or(())?;
+                let mut value = value.expect_constructed().ok_or(())?;
 
                 value.reverse();
 
@@ -1392,7 +1361,8 @@ impl From<LdapControl> for Tag {
 
         if let Some(inner_tag) = inner_tag {
             let mut bytes = BytesMut::new();
-            lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+            lber_write::encode_into(&mut bytes, inner_tag.into_structure())
+                .expect("Failed to encode inner structure, this is a bug!");
             inner.push(Tag::OctetString(OctetString {
                 inner: bytes.to_vec(),
                 ..Default::default()
@@ -2424,7 +2394,7 @@ impl From<LdapPartialAttribute> for Tag {
                         .into_iter()
                         .map(|v| {
                             Tag::OctetString(OctetString {
-                                inner: Vec::from(v),
+                                inner: v,
                                 ..Default::default()
                             })
                         })
@@ -2613,10 +2583,7 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
             (Some("1.3.6.1.4.1.4203.1.9.1.4"), Some(buf)) => {
                 // It's a sync info done. Start to process the value.
                 let mut parser = Parser::new();
-                let (_rem, msg) = match parser.parse(buf) {
-                    Ok(v) => v,
-                    _ => return Err(()),
-                };
+                let (_rem, msg) = parser.parse(buf).map_err(|_| ())?;
 
                 if msg.class != TagClass::Context {
                     error!("Invalid tagclass");
@@ -2624,7 +2591,7 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
                 };
 
                 let id = msg.id;
-                let mut inner = msg.clone().expect_constructed().ok_or_else(|| {
+                let mut inner = msg.expect_constructed().ok_or_else(|| {
                     trace!("invalid or filter");
                 })?;
 
@@ -2689,7 +2656,6 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
                                                 Uuid::from_slice(&v)
                                                     .map_err(|_| {
                                                         error!("Invalid syncUUID");
-                                                        ()
                                                     })
                                                     .ok()
                                             })
@@ -2742,7 +2708,8 @@ impl From<LdapIntermediateResponse> for Vec<Tag> {
                 });
 
                 let mut bytes = BytesMut::new();
-                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure())
+                    .expect("Failed to encode inner structure, this is a bug!");
                 (
                     Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
                     Some(bytes.to_vec()),
@@ -2777,7 +2744,8 @@ impl From<LdapIntermediateResponse> for Vec<Tag> {
                 });
 
                 let mut bytes = BytesMut::new();
-                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure())
+                    .expect("Failed to encode inner structure, this is a bug!");
                 (
                     Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
                     Some(bytes.to_vec()),
@@ -2812,7 +2780,8 @@ impl From<LdapIntermediateResponse> for Vec<Tag> {
                 });
 
                 let mut bytes = BytesMut::new();
-                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure())
+                    .expect("Failed to encode inner structure, this is a bug!");
                 (
                     Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
                     Some(bytes.to_vec()),
@@ -2865,7 +2834,8 @@ impl From<LdapIntermediateResponse> for Vec<Tag> {
                 });
 
                 let mut bytes = BytesMut::new();
-                lber_write::encode_into(&mut bytes, inner_tag.into_structure()).unwrap();
+                lber_write::encode_into(&mut bytes, inner_tag.into_structure())
+                    .expect("Failed to encode inner structure, this is a bug!");
                 (
                     Some("1.3.6.1.4.1.4203.1.9.1.4".to_string()),
                     Some(bytes.to_vec()),
@@ -3097,7 +3067,7 @@ impl From<LdapCompareRequest> for Vec<Tag> {
                         ..Default::default()
                     }),
                     Tag::OctetString(OctetString {
-                        inner: Vec::from(val),
+                        inner: val,
                         ..Default::default()
                     }),
                 ],
@@ -3296,11 +3266,12 @@ impl std::fmt::Debug for LdapPasswordModifyRequest {
     }
 }
 
-fn ber_bool_to_bool(bv: Vec<u8>) -> Option<bool> {
-    bv.get(0).map(|v| !matches!(v, 0))
+fn ber_bool_to_bool<V: AsRef<[u8]>>(bv: V) -> Option<bool> {
+    bv.as_ref().first().map(|v| !matches!(v, 0))
 }
 
-fn ber_integer_to_i64(bv: Vec<u8>) -> Option<i64> {
+fn ber_integer_to_i64<V: AsRef<[u8]>>(v: V) -> Option<i64> {
+    let bv = v.as_ref();
     // ints in ber are be and may be truncated.
     let mut raw: [u8; 8] = [0; 8];
     // This is where we need to start inserting bytes.

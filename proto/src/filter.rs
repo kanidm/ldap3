@@ -81,7 +81,6 @@ peg::parser! {
 pub fn parse_ldap_filter_str(f: &str) -> Result<LdapFilter, ()> {
     ldapfilter::parse(f).map_err(|e| {
         debug!("{:?}", e);
-        ()
     })
 }
 

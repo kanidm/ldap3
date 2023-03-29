@@ -64,7 +64,7 @@ impl Decoder for LdapCodec {
             buf.advance(size);
         }
         // Build the LdapMsg from the Tag
-        LdapMsg::try_from(msg.clone())
+        LdapMsg::try_from(msg)
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "ldapmsg invalid"))
             .map(Some)
     }
@@ -371,15 +371,14 @@ mod tests {
         use std::convert::TryFrom;
 
         let mut parser = lber::parse::Parser::new();
-        let (_rem, msg) = match parser.parse(&[
-            48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101, 110,
-            44, 111, 117, 61, 80, 101, 111, 112, 108, 101, 44, 100, 99, 61, 101, 120, 97, 109, 112,
-            108, 101, 44, 100, 99, 61, 99, 111, 109, 48, 21, 48, 19, 10, 1, 2, 48, 14, 4, 2, 115,
-            110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115,
-        ]) {
-            Ok(v) => v,
-            _ => panic!(),
-        };
+        let (_rem, msg) = parser
+            .parse(&[
+                48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101,
+                110, 44, 111, 117, 61, 80, 101, 111, 112, 108, 101, 44, 100, 99, 61, 101, 120, 97,
+                109, 112, 108, 101, 44, 100, 99, 61, 99, 111, 109, 48, 21, 48, 19, 10, 1, 2, 48,
+                14, 4, 2, 115, 110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115,
+            ])
+            .unwrap();
         let op = LdapMsg::try_from(msg.clone()).expect("failed to decode");
 
         eprintln!("{:?}", op);
@@ -430,13 +429,12 @@ mod tests {
         let _ = tracing_subscriber::fmt::try_init();
 
         let mut parser = lber::parse::Parser::new();
-        let (_rem, msg) = match parser.parse(&[
-            48, 35, 2, 1, 2, 101, 30, 10, 2, 16, 0, 4, 0, 4, 22, 73, 110, 118, 97, 108, 105, 100,
-            32, 115, 101, 115, 115, 105, 111, 110, 32, 99, 111, 111, 107, 105, 101,
-        ]) {
-            Ok(v) => v,
-            _ => panic!(),
-        };
+        let (_rem, msg) = parser
+            .parse(&[
+                48, 35, 2, 1, 2, 101, 30, 10, 2, 16, 0, 4, 0, 4, 22, 73, 110, 118, 97, 108, 105,
+                100, 32, 115, 101, 115, 115, 105, 111, 110, 32, 99, 111, 111, 107, 105, 101,
+            ])
+            .unwrap();
         let op = LdapMsg::try_from(msg.clone()).expect("failed to decode");
 
         eprintln!("{:?}", op);
@@ -535,19 +533,15 @@ mod tests {
     #[test]
     fn test_message_partial() {
         let mut parser = lber::parse::Parser::new();
-        match parser.parse(&[
+
+        let parse_result = parser.parse(&[
             48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101, 110,
             44, 111, 117, 61, 80, 101, 111, 112, 108, 101, 44, 100, 99, 61, 101, 120, 97, 109, 112,
             108, 101, 44, 100, 99,
             61,
             // 99, 111, 109, 48, 21, 48, 19, 10, 1, 2, 48, 14, 4, 2, 115,
             // 110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115,
-        ]) {
-            Err(nom::Err::Incomplete(_)) => {}
-            r => {
-                eprintln!("{:?}", r);
-                panic!()
-            }
-        };
+        ]);
+        assert!(matches!(parse_result, Err(nom::Err::Incomplete(_))));
     }
 }
