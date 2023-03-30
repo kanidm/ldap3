@@ -17,6 +17,7 @@ strict = []
 [dependencies]
 bytes.workspace = true
 lber.workspace = true
+nom.workspace = true
 peg.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
 tracing.workspace = true
