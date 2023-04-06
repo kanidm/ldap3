@@ -13,6 +13,7 @@ repository.workspace = true
 [features]
 default = ["strict"]
 strict = []
+openssl-vendored = ["openssl/vendored"]
 
 [dependencies]
 bytes.workspace = true

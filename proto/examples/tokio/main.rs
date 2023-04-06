@@ -62,6 +62,10 @@ impl LdapSession {
         ]
     }
 
+    pub fn do_compare(&mut self, cp: &CompareRequest) -> LdapMsg {
+        cp.gen_success()
+    }
+
     pub fn do_whoami(&mut self, wr: &WhoamiRequest) -> LdapMsg {
         wr.gen_success(format!("dn: {}", self.dn).as_str())
     }
@@ -103,6 +107,7 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
                 // No need to notify on unbind (per rfc4511)
                 return;
             }
+            ServerOps::Compare(cp) => vec![session.do_compare(&cp)],
             ServerOps::Whoami(wr) => vec![session.do_whoami(&wr)],
         };
 

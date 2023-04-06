@@ -30,6 +30,14 @@ pub struct WhoamiRequest {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct CompareRequest {
+    pub msgid: i32,
+    pub entry: String,
+    pub atype: String,
+    pub val: String,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct DisconnectionNotice;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -38,6 +46,7 @@ pub enum ServerOps {
     SimpleBind(SimpleBindRequest),
     Unbind(UnbindRequest),
     Whoami(WhoamiRequest),
+    Compare(CompareRequest),
 }
 
 // Implement by hand to avoid printing the password.
@@ -81,6 +90,12 @@ impl TryFrom<LdapMsg> for ServerOps {
                     attrs,
                 }))
             }
+            LdapOp::CompareRequest(lcr) => Ok(ServerOps::Compare(CompareRequest {
+                msgid,
+                entry: lcr.dn,
+                atype: lcr.atype,
+                val: String::from_utf8(lcr.val).unwrap_or_default(),
+            })),
             LdapOp::ExtendedRequest(ler) => match ler.name.as_str() {
                 "1.3.6.1.4.1.4203.1.11.3" => Ok(ServerOps::Whoami(WhoamiRequest { msgid })),
                 _ => Err(()),
@@ -220,6 +235,34 @@ impl SimpleBindRequest {
                     referral: vec![],
                 },
                 saslcreds: None,
+            }),
+            ctrl: vec![],
+        }
+    }
+}
+
+impl CompareRequest {
+    pub fn gen_success(&self) -> LdapMsg {
+        LdapMsg {
+            msgid: self.msgid,
+            op: LdapOp::CompareResult(LdapResult {
+                code: LdapResultCode::CompareTrue,
+                matcheddn: "".to_string(),
+                message: "".to_string(),
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        }
+    }
+
+    pub fn gen_failed(&self) -> LdapMsg {
+        LdapMsg {
+            msgid: self.msgid,
+            op: LdapOp::CompareResult(LdapResult {
+                code: LdapResultCode::CompareFalse,
+                matcheddn: "".to_string(),
+                message: "".to_string(),
+                referral: vec![],
             }),
             ctrl: vec![],
         }

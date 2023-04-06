@@ -13,6 +13,7 @@ repository.workspace = true
 [features]
 default = ["strict"]
 strict = ["ldap3_proto/strict"]
+openssl-vendored = ["openssl/vendored"]
 
 [lib]
 name = "ldap3_client"
