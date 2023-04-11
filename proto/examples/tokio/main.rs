@@ -63,7 +63,7 @@ impl LdapSession {
     }
 
     pub fn do_compare(&mut self, cp: &CompareRequest) -> LdapMsg {
-        cp.gen_success()
+        cp.gen_compare_true()
     }
 
     pub fn do_whoami(&mut self, wr: &WhoamiRequest) -> LdapMsg {

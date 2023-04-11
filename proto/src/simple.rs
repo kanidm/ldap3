@@ -242,7 +242,7 @@ impl SimpleBindRequest {
 }
 
 impl CompareRequest {
-    pub fn gen_success(&self) -> LdapMsg {
+    pub fn gen_compare_true(&self) -> LdapMsg {
         LdapMsg {
             msgid: self.msgid,
             op: LdapOp::CompareResult(LdapResult {
@@ -255,7 +255,7 @@ impl CompareRequest {
         }
     }
 
-    pub fn gen_failed(&self) -> LdapMsg {
+    pub fn gen_compare_false(&self) -> LdapMsg {
         LdapMsg {
             msgid: self.msgid,
             op: LdapOp::CompareResult(LdapResult {
