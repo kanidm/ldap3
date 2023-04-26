@@ -253,6 +253,7 @@ pub struct LdapClientBuilder<'a> {
     url: &'a Url,
     timeout: Duration,
     cas: Vec<&'a Path>,
+    verify: bool,
 }
 
 impl<'a> LdapClientBuilder<'a> {
@@ -261,6 +262,7 @@ impl<'a> LdapClientBuilder<'a> {
             url,
             timeout: Duration::from_secs(30),
             cas: Vec::new(),
+            verify: true,
         }
     }
 
@@ -277,9 +279,19 @@ impl<'a> LdapClientBuilder<'a> {
         self
     }
 
+    pub fn danger_accept_invalid_certs(mut self, accept_invalid_certs: bool) -> Self {
+        self.verify = accept_invalid_certs;
+        self
+    }
+
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn build(self) -> LdapResult<LdapClient> {
-        let LdapClientBuilder { url, timeout, cas } = self;
+        let LdapClientBuilder {
+            url,
+            timeout,
+            cas,
+            verify,
+        } = self;
 
         info!(%url);
         info!(?timeout);
@@ -379,8 +391,11 @@ impl<'a> LdapClientBuilder<'a> {
                         LdapError::TlsError
                     })?;
             }
-
-            tls_parms.set_verify(SslVerifyMode::PEER);
+            if verify {
+                tls_parms.set_verify(SslVerifyMode::PEER);
+            } else {
+                tls_parms.set_verify(SslVerifyMode::NONE);
+            }
             let tls_parms = tls_parms.build();
 
             let mut tlsstream = Ssl::new(tls_parms.context())
