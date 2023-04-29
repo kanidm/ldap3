@@ -46,6 +46,7 @@ mod syncrepl;
 
 pub use syncrepl::{LdapSyncRepl, LdapSyncReplEntry, LdapSyncStateValue};
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[repr(i32)]
 pub enum LdapError {
@@ -65,7 +66,9 @@ pub enum LdapError {
     UnavailableCriticalExtension = 12,
     InvalidCredentials = 49,
     InsufficentAccessRights = 50,
+    UnwillingToPerform = 53,
     EsyncRefreshRequired = 4096,
+    NotImplemented = 9999,
 }
 
 impl From<LdapResultCode> for LdapError {
@@ -75,9 +78,10 @@ impl From<LdapResultCode> for LdapError {
             LdapResultCode::InsufficentAccessRights => LdapError::InsufficentAccessRights,
             LdapResultCode::EsyncRefreshRequired => LdapError::EsyncRefreshRequired,
             LdapResultCode::UnavailableCriticalExtension => LdapError::UnavailableCriticalExtension,
+            LdapResultCode::UnwillingToPerform => LdapError::UnwillingToPerform,
             err => {
-                trace!(?err);
-                unimplemented!()
+                error!("{:?} not implemented yet!!", err);
+                LdapError::NotImplemented
             }
         }
     }
@@ -109,7 +113,9 @@ impl fmt::Display for LdapError {
             LdapError::UnavailableCriticalExtension => write!(f, "An extension marked as critical was not available"),
             LdapError::InvalidCredentials => write!(f, "Invalid DN or Password"),
             LdapError::InsufficentAccessRights => write!(f, "Insufficent Access"),
+            LdapError::UnwillingToPerform => write!(f, "Too many failures, server is unwilling to perform the operation."),
             LdapError::EsyncRefreshRequired => write!(f, "An initial content sync is required. The current cookie should be considered invalid."),
+            LdapError::NotImplemented => write!(f, "An error occurred, but we haven't implemented code to handle this error yet.")
         }
     }
 }
