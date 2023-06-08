@@ -1,13 +1,8 @@
-
 use crate::filter::ldapfilter;
 use crate::proto::LdapFilter;
 use std::fmt;
 
-use serde::{
-    de,
-    Deserialize, Deserializer
-};
-
+use serde::{de, Deserialize, Deserializer};
 
 impl<'de> Deserialize<'de> for LdapFilter {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -33,5 +28,15 @@ impl<'de> Deserialize<'de> for LdapFilter {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::parse_ldap_filter_str;
 
+    #[test]
+    fn test_deserialize_ldapfilter_str() {
+        let filter_str = "(objectclass=*)";
+        let f = parse_ldap_filter_str(filter_str).unwrap();
 
+        serde_test::assert_de_tokens(&f, &[serde_test::Token::Str(filter_str)]);
+    }
+}

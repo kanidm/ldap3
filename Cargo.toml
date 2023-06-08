@@ -11,7 +11,7 @@ members = [
 
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 authors = [
     "William Brown <william@blackhats.net.au>",
     ]
@@ -41,6 +41,7 @@ ron = "^0.8.0"
 rpassword = "7.0.0"
 serde = { version = "^1.0.136", features = ["derive"] }
 serde_json = "^1.0.79"
+serde_test = "^1.0.56"
 tokio = "^1.17.0"
 tokio-util = "^0.7.1"
 tokio-openssl = "^0.6.3"

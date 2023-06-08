@@ -267,6 +267,19 @@ impl CompareRequest {
             ctrl: vec![],
         }
     }
+
+    pub fn gen_error(&self, rc: LdapResultCode, msg: String) -> LdapMsg {
+        LdapMsg {
+            msgid: self.msgid,
+            op: LdapOp::CompareResult(LdapResult {
+                code: rc,
+                matcheddn: "".to_string(),
+                message: msg,
+                referral: vec![],
+            }),
+            ctrl: vec![],
+        }
+    }
 }
 
 impl WhoamiRequest {
