@@ -3,7 +3,7 @@
 use crate::LdapFilter;
 
 peg::parser! {
-    grammar ldapfilter() for str {
+    pub(crate) grammar ldapfilter() for str {
 
         pub rule parse() -> LdapFilter =
             separator()* "(" e:term() ")" separator()* { e }

@@ -60,7 +60,15 @@ async fn main() {
         }
     };
 
-    let mut client = match LdapClientBuilder::new(&opt.url).build().await {
+    let builder = LdapClientBuilder::new(&opt.url);
+
+    let builder = if let Some(ca_cert_path) = opt.ca_cert.as_ref() {
+        builder.add_tls_ca(ca_cert_path)
+    } else {
+        builder
+    };
+
+    let mut client = match builder.build().await {
         Ok(c) => c,
         Err(e) => {
             if opt.json {
