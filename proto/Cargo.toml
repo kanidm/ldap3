@@ -23,6 +23,7 @@ peg.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
 tracing.workspace = true
 uuid.workspace = true
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
@@ -33,3 +34,5 @@ futures.workspace = true
 
 tokio-openssl.workspace = true
 openssl.workspace = true
+
+serde_test.workspace = true

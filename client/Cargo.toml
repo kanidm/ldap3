@@ -23,7 +23,7 @@ path = "src/lib.rs"
 base64.workspace = true
 base64urlsafedata.workspace = true
 futures-util = { workspace = true, features = ["sink"] }
-ldap3_proto.workspace = true
+ldap3_proto = { workspace = true, features = ["serde"] }
 serde= { workspace = true, features = ["derive"] }
 openssl.workspace = true
 tokio = { workspace = true, features = ["net", "time", "sync", "io-util", "macros"] }

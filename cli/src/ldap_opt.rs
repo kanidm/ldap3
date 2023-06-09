@@ -71,6 +71,9 @@ struct LdapOpt {
     #[clap(short = 'w', long = "pass")]
     bind_passwd: Option<String>,
 
+    #[clap(short = 'C', long = "ca")]
+    ca_cert: Option<String>,
+
     #[clap(subcommand)]
     /// The ldap action to perform
     action: LdapAction
