@@ -35,8 +35,8 @@ pub enum LdapSyncRepl {
         cookie: Option<Base64UrlSafeData>,
         refresh_deletes: bool,
         entries: Vec<LdapSyncReplEntry>,
-        delete_uuids: Vec<Uuid>,
-        present_uuids: Vec<Uuid>,
+        delete_uuids: Option<Vec<Uuid>>,
+        present_uuids: Option<Vec<Uuid>>,
     },
     RefreshRequired,
 }
@@ -75,8 +75,8 @@ impl LdapClient {
         self.write_transport.send(msg).await?;
 
         let mut entries = Vec::new();
-        let mut delete_uuids = Vec::new();
-        let mut present_uuids = Vec::new();
+        let mut delete_uuids: Option<Vec<_>> = None;
+        let mut present_uuids: Option<Vec<_>> = None;
 
         loop {
             let mut msg = self.read_transport.next().await?;
@@ -133,9 +133,11 @@ impl LdapClient {
                     // state of the content after performing the synchronization of the
                     // entries in the set.
                     if refresh_deletes {
-                        delete_uuids.extend(syncuuids.into_iter())
+                        let d_uuids = delete_uuids.get_or_insert_with(Vec::default);
+                        d_uuids.extend(syncuuids.into_iter());
                     } else {
-                        present_uuids.extend(syncuuids.into_iter())
+                        let p_uuids = present_uuids.get_or_insert_with(Vec::default);
+                        p_uuids.extend(syncuuids.into_iter());
                     }
                 }
                 LdapOp::IntermediateResponse(LdapIntermediateResponse::SyncInfoRefreshDelete {
@@ -145,6 +147,7 @@ impl LdapClient {
                     // These are no-ops that are skipped for our purposes
                     // They are intended to deliniate the seperate phases, but we actually don't
                     // care until we get the search result done.
+                    let _d_uuids = delete_uuids.get_or_insert_with(Vec::default);
                 }
                 LdapOp::IntermediateResponse(
                     LdapIntermediateResponse::SyncInfoRefreshPresent {
@@ -155,6 +158,7 @@ impl LdapClient {
                     // These are no-ops that are skipped for our purposes
                     // They are intended to deliniate the seperate phases, but we actually don't
                     // care until we get the search result done.
+                    let _p_uuids = present_uuids.get_or_insert_with(Vec::default);
                 }
                 LdapOp::SearchResultEntry(entry) => {
                     if let Some(LdapControl::SyncState {

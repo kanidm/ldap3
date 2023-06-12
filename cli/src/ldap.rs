@@ -228,18 +228,26 @@ async fn main() {
                         }
                         println!("");
                     }
-                    for entry_uuid in &delete_uuids {
-                        println!("delete entryuuid: {}", entry_uuid);
+                    if let Some(d_uuids) = &delete_uuids {
+                        for entry_uuid in d_uuids {
+                            println!("delete entryuuid: {}", entry_uuid);
+                        }
                     }
-                    if !present_uuids.is_empty() {
-                        println!("");
+
+                    if let Some(p_uuids) = &present_uuids {
+                        if !p_uuids.is_empty() {
+                            println!("");
+                        }
+                        for entry_uuid in p_uuids {
+                            println!("present entryuuid: {}", entry_uuid);
+                            println!("");
+                        }
                     }
-                    for entry_uuid in &present_uuids {
-                        println!("present entryuuid: {}", entry_uuid);
-                        println!("");
-                    }
+
                     println!("");
                     println!("refresh_deletes: {}", refresh_deletes);
+                    println!("delete_phase: {}", delete_uuids.is_some());
+                    println!("present_phase: {}", present_uuids.is_some());
 
                     println!(
                         "cookie: {}",
