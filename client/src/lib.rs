@@ -44,6 +44,7 @@ mod addirsync;
 mod search;
 mod syncrepl;
 
+pub use search::LdapSearchResult;
 pub use syncrepl::{LdapSyncRepl, LdapSyncReplEntry, LdapSyncStateValue};
 
 #[non_exhaustive]
