@@ -11,9 +11,11 @@ use lber::parse::Parser;
 
 use bytes::BytesMut;
 use uuid::Uuid;
+use serde::Deserialize;
 
 use std::convert::{From, TryFrom};
 use std::iter::{once, once_with};
+use std::hash::Hash;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapMsg {
@@ -22,14 +24,14 @@ pub struct LdapMsg {
     pub ctrl: Vec<LdapControl>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(i64)]
 pub enum SyncRequestMode {
     RefreshOnly = 1,
     RefreshAndPersist = 3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(i64)]
 pub enum SyncStateValue {
     Present = 0,
@@ -38,7 +40,7 @@ pub enum SyncStateValue {
     Delete = 3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum LdapControl {
     SyncRequest {
         // Shouldn't this imply true?
@@ -180,7 +182,9 @@ pub struct LdapBindResponse {
     pub saslcreds: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase") )]
 #[repr(i64)]
 pub enum LdapSearchScope {
     Base = 0,
@@ -190,7 +194,7 @@ pub enum LdapSearchScope {
     Children = 3,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(i64)]
 pub enum LdapDerefAliases {
     Never = 0,
@@ -199,14 +203,14 @@ pub enum LdapDerefAliases {
     Always = 3,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
 pub struct LdapSubstringFilter {
     pub initial: Option<String>,
     pub any: Vec<String>,
     pub final_: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
 pub struct LdapMatchingRuleAssertion {
     pub matching_rule: Option<String>,
     pub type_: Option<String>,
@@ -214,7 +218,7 @@ pub struct LdapMatchingRuleAssertion {
     pub dn_attributes: bool, // DEFAULT FALSE
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum LdapFilter {
     And(Vec<LdapFilter>),
     Or(Vec<LdapFilter>),
@@ -228,7 +232,7 @@ pub enum LdapFilter {
     Extensible(LdapMatchingRuleAssertion),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq)]
 pub struct LdapSearchRequest {
     pub base: String,
     pub scope: LdapSearchScope,
@@ -247,6 +251,17 @@ pub struct LdapPartialAttribute {
     pub vals: Vec<Vec<u8>>,
 }
 
+impl LdapPartialAttribute {
+    pub fn size(&self) -> usize {
+        std::mem::size_of::<Self>() +
+            self.atype.capacity() +
+            (self.vals.capacity() * std::mem::size_of::<Vec<()>>() ) +
+            self.vals.iter().map(|val| 
+                val.capacity() * std::mem::size_of::<Vec<()>>()
+            ).sum::<usize>()
+    }
+}
+
 // A PartialAttribute allows zero values, while
 // Attribute requires at least one value.
 pub type LdapAttribute = LdapPartialAttribute;
@@ -255,6 +270,14 @@ pub type LdapAttribute = LdapPartialAttribute;
 pub struct LdapSearchResultEntry {
     pub dn: String,
     pub attributes: Vec<LdapPartialAttribute>,
+}
+
+impl LdapSearchResultEntry {
+    pub fn size(&self) -> usize {
+        std::mem::size_of::<Self>() +
+            self.dn.capacity() +
+            self.attributes.iter().map(|attr| attr.size()).sum::<usize>()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
