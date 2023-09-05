@@ -412,7 +412,7 @@ impl<'a> LdapClientBuilder<'a> {
                     LdapError::TlsError
                 })?;
 
-            let _ = SslStream::connect(Pin::new(&mut tlsstream))
+            SslStream::connect(Pin::new(&mut tlsstream))
                 .await
                 .map_err(|e| {
                     error!(?e, "openssl");

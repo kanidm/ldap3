@@ -740,11 +740,11 @@ impl TryFrom<StructureTag> for LdapMsg {
             .and_then(|t| t.match_id(0))
             // So it's probably controls, decode them?
             .and_then(|t| t.expect_constructed())
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         let ctrl = ctrl_vec
             .into_iter()
-            .map(|t| TryInto::<LdapControl>::try_into(t))
+            .map(TryInto::<LdapControl>::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(LdapMsg { msgid, op, ctrl })
@@ -2811,7 +2811,7 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
                     }
                     _ => {
                         trace!("invalid value id");
-                        return Err(LdapProtoError::IntermediateResponseId);
+                        Err(LdapProtoError::IntermediateResponseId)
                     }
                 }
             }
@@ -3410,6 +3410,6 @@ fn ber_integer_to_i64<V: AsRef<[u8]>>(v: V) -> Option<i64> {
     } else {
         8 - bv.len()
     };
-    raw[base..(bv.len() + base)].clone_from_slice(&bv[..]);
+    raw[base..(bv.len() + base)].clone_from_slice(bv);
     Some(i64::from_be_bytes(raw))
 }

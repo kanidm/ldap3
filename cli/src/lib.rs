@@ -11,20 +11,20 @@
 // We allow expect since it forces good error messages at the least.
 #![allow(clippy::expect_used)]
 
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
 pub fn start_tracing(verbose: bool) {
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(false);
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| {
-            if verbose {
-                EnvFilter::try_new("info")
-            } else {
-                EnvFilter::try_new("warn")
-            }
-        })
-        .unwrap();
+    let level = if verbose {
+        LevelFilter::INFO
+    } else {
+        LevelFilter::WARN
+    };
+    let filter_layer = EnvFilter::builder()
+        .with_default_directive(level.into())
+        .from_env_lossy();
 
     tracing_subscriber::registry()
         .with(filter_layer)
