@@ -69,6 +69,8 @@ pub enum LdapControl {
         size: i64,
         cookie: String,
     },
+    ManageDsaIT,
+    Unknown { oid: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1208,9 +1210,14 @@ impl TryFrom<StructureTag> for LdapControl {
 
                 Ok(LdapControl::SimplePagedResults { size, cookie })
             }
-            o => {
-                error!(%o, "Unsupported control oid");
-                Err(())
+            "2.16.840.1.113730.3.4.2" => {
+                // ManageDsaIT per https://www.rfc-editor.org/rfc/rfc3296
+                // Has no content.
+                Ok(LdapControl::ManageDsaIT)
+            }
+            oid => {
+                warn!(%o, "Unsupported control oid");
+                Ok(LdapControl::Unknown { oid: oid.to_string() })
             }
         }
     }
