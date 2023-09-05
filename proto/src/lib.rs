@@ -15,6 +15,7 @@
 #[macro_use]
 extern crate tracing;
 
+pub mod error;
 pub mod filter;
 pub mod proto;
 pub mod simple;
@@ -31,7 +32,6 @@ use tokio_util::codec::{Decoder, Encoder};
 use tracing::{error, trace};
 
 pub use crate::filter::parse_ldap_filter_str;
-use crate::proto::LdapMsg;
 pub use crate::simple::*;
 
 pub struct LdapCodec;

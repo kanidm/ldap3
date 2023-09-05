@@ -24,6 +24,7 @@ tokio-util = { workspace = true, features = ["codec"] }
 tracing.workspace = true
 uuid.workspace = true
 serde = { workspace = true, optional = true }
+thiserror.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
