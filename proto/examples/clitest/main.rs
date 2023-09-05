@@ -41,7 +41,7 @@ async fn main() -> Result<(), ()> {
             eprintln!("Failed to initialise TLS -> {:?}", e);
         })?;
 
-    let mut framed = Framed::new(tlsstream, LdapCodec);
+    let mut framed = Framed::new(tlsstream, LdapCodec::default());
     // let mut framed = Framed::new(tcpstream, LdapCodec);
 
     let dn = "uid=demo_user,ou=people,dc=example,dc=com".to_string();

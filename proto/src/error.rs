@@ -5,127 +5,127 @@ pub enum LdapProtoError {
     #[error("The whoami response contains an invalid 'name' field")]
     WhoamiResponseName,
 
-    #[error("")]
+    #[error("Invalid oid in extended request")]
     PasswordModifyRequestOid,
-    #[error("")]
+    #[error("Password modify request value empty")]
     PasswordModifyRequestEmpty,
-    #[error("")]
+    #[error("Invalid BER in password modify request")]
     PasswordModifyRequestBer,
-    #[error("")]
+    #[error("Invalid value id tag in password modify request")]
     PasswordModifyRequestValueId,
 
-    #[error("")]
+    #[error("Missing password modify response name")]
     PasswordModifyResponseName,
-    #[error("")]
+    #[error("Password modify response value empty")]
     PasswordModifyResponseEmpty,
-    #[error("")]
+    #[error("Invalid BER in password modify response")]
     PasswordModifyResponseBer,
 
     #[error("The memory dump contains invalid BER")]
     OlMemDumpBer,
 
-    #[error("")]
+    #[error("The LDAP msg contains invalid BER")]
     LdapMsgBer,
-    #[error("")]
+    #[error("The LDAP msg has an invalid sequence length")]
     LdapMsgSeqLen,
-    #[error("")]
+    #[error("The LDAP msg has an invalid id")]
     LdapMsgId,
-    #[error("")]
+    #[error("The LDAP msg has no operation")]
     LdapMsgOp,
 
-    #[error("")]
+    #[error("Invalid operation tag")]
     LdapOpTag,
-    #[error("")]
+    #[error("Unknown operation type. This may be a bug in ldap3_proto.")]
     LdapOpUnknown,
 
-    #[error("")]
+    #[error("The request control is unknown. This may be a bug in ldap3_proto.")]
     ControlUnknown,
 
-    #[error("")]
+    #[error("Control contains invalid BER")]
     ControlBer,
-    #[error("")]
+    #[error("The control has an invalid sequence length")]
     ControlSeqLen,
-    #[error("")]
+    #[error("Invalid sync mode id requested in control")]
     ControlSyncMode,
-    #[error("")]
+    #[error("Invalid sync state id requested in control")]
     ControlSyncState,
-    #[error("")]
+    #[error("Invalid sync uuid in control")]
     ControlSyncUuid,
-    #[error("")]
+    #[error("Invalid integer in ad dirsync control")]
     ControlAdDirsyncInteger,
-    #[error("")]
+    #[error("Invalid integer in paged search control")]
     ControlPagedInteger,
-    #[error("")]
+    #[error("Invalid utf8 data in paged search control")]
     ControlPagedUtf8,
 
-    #[error("")]
+    #[error("Invalid BER in bind credentials")]
     BindCredBer,
-    #[error("")]
+    #[error("Invalid value id in bind credentials")]
     BindCredId,
 
-    #[error("")]
+    #[error("Bind request version is not equal to 3. This is a serious client bug.")]
     BindRequestVersion,
-    #[error("")]
+    #[error("Invalid BER in bind request.")]
     BindRequestBer,
 
-    #[error("")]
+    #[error("Invalid BER in result.")]
     ResultBer,
 
-    #[error("")]
+    #[error("Invalid Tag in filter")]
     FilterTag,
-    #[error("")]
+    #[error("Invalid BER in filter")]
     FilterBer,
 
-    #[error("")]
+    #[error("Invalid BER in search")]
     SearchBer,
 
-    #[error("")]
+    #[error("Invalid BER in modify")]
     ModifyBer,
 
-    #[error("")]
+    #[error("Invalid BER in partial attribute")]
     PartialAttributeBer,
 
-    #[error("")]
+    #[error("Invalid BER in search result entry")]
     SearchResultEntryBer,
 
-    #[error("")]
+    #[error("Invalid BER in extended request")]
     ExtendedRequestBer,
 
-    #[error("")]
+    #[error("Intermediate response tag is invalid")]
     IntermediateResponseTag,
-    #[error("")]
+    #[error("Invalid intermediat response id")]
     IntermediateResponseId,
-    #[error("")]
+    #[error("Invalid BER in intermediate response")]
     IntermediateResponseBer,
-    #[error("")]
+    #[error("Invalid Sync UUID in intermediate response")]
     IntermediateResponseSyncUuid,
 
-    #[error("")]
+    #[error("Invalid modify type value")]
     ModifyTypeValue,
-    #[error("")]
+    #[error("Invalid search scope value")]
     SearchScopeValue,
 
-    #[error("")]
+    #[error("Invalid deref aliases value")]
     DerefAliasesValue,
 
-    #[error("")]
+    #[error("Invalid BER in modify request")]
     ModifyRequestBer,
 
-    #[error("")]
+    #[error("Invalid BER in add request")]
     AddRequestBer,
 
-    #[error("")]
+    #[error("Invalid BER in modify dn request")]
     ModifyDNRequestBer,
 
-    #[error("")]
+    #[error("Invalid BER in compare request")]
     CompareRequestBer,
 
-    #[error("")]
+    #[error("Invalid or unknown result code")]
     ResultCode,
 
-    #[error("")]
+    #[error("Invalid BER in delete request")]
     DelRequestBer,
 
-    #[error("")]
+    #[error("Invalid BER in abandon request")]
     AbandonRequestBer,
 }

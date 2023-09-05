@@ -74,8 +74,8 @@ impl LdapSession {
 async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
     // Configure the codec etc.
     let (r, w) = tokio::io::split(socket);
-    let mut reqs = FramedRead::new(r, LdapCodec);
-    let mut resp = FramedWrite::new(w, LdapCodec);
+    let mut reqs = FramedRead::new(r, LdapCodec::default());
+    let mut resp = FramedWrite::new(w, LdapCodec::default());
 
     let mut session = LdapSession {
         dn: "Anonymous".to_string(),

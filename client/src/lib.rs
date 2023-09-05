@@ -422,14 +422,14 @@ impl<'a> LdapClientBuilder<'a> {
             info!("tls configured");
             let (r, w) = tokio::io::split(tlsstream);
             (
-                LdapWriteTransport::Tls(FramedWrite::new(w, LdapCodec)),
-                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec)),
+                LdapWriteTransport::Tls(FramedWrite::new(w, LdapCodec::default())),
+                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec::default())),
             )
         } else {
             let (r, w) = tokio::io::split(tcpstream);
             (
-                LdapWriteTransport::Plain(FramedWrite::new(w, LdapCodec)),
-                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec)),
+                LdapWriteTransport::Plain(FramedWrite::new(w, LdapCodec::default())),
+                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec::default())),
             )
         };
 
