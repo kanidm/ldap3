@@ -55,7 +55,7 @@ async fn main() {
         }
         std::process::exit(e as i32);
     } else {
-        ("".to_string(), "".to_string())
+        (String::new(), String::new())
     };
 
     let builder = LdapClientBuilder::new(&opt.url);

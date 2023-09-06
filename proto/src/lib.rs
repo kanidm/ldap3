@@ -34,7 +34,7 @@ use tracing::{error, trace};
 pub use crate::filter::parse_ldap_filter_str;
 pub use crate::simple::*;
 
-const KILOBYTES: usize = 1048576;
+const KILOBYTES: usize = 1024;
 const DEFAULT_MAX_BER_SIZE: usize = 8 * KILOBYTES;
 
 pub struct LdapCodec {
@@ -86,7 +86,6 @@ impl Decoder for LdapCodec {
             ));
         }
 
-        // helper for when we need to debug inputs.
         if size == buf.len() {
             buf.clear();
         } else {
