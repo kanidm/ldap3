@@ -11,12 +11,28 @@ use lber::parse::Parser;
 
 use bytes::BytesMut;
 use serde::Deserialize;
+use std::fmt;
 use uuid::Uuid;
 
 use crate::error::LdapProtoError;
 use std::convert::{From, TryFrom};
 use std::hash::Hash;
 use std::iter::{once, once_with};
+
+use base64::{engine::general_purpose, Engine as _};
+
+pub const OID_WHOAMI: &str = "1.3.6.1.4.1.4203.1.11.3";
+pub const OID_PASSWORD_MODIFY: &str = "1.3.6.1.4.1.4203.1.11.1";
+
+macro_rules! bytes_to_string {
+    ($bytes:expr) => {
+        if let Ok(s) = String::from_utf8($bytes.clone()) {
+            s
+        } else {
+            general_purpose::URL_SAFE.encode(&$bytes)
+        }
+    };
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapMsg {
@@ -41,7 +57,7 @@ pub enum SyncStateValue {
     Delete = 3,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum LdapControl {
     SyncRequest {
         // Shouldn't this imply true?
@@ -61,18 +77,84 @@ pub enum LdapControl {
     },
     AdDirsync {
         flags: i64,
-        // Msdn and wireshark disagree on the name oof this type.
+        // Msdn and wireshark disagree on the name of this type.
         max_bytes: i64,
         cookie: Option<Vec<u8>>,
     },
     // https://www.ietf.org/rfc/rfc2696.txt
     SimplePagedResults {
         size: i64,
-        cookie: String,
+        cookie: Vec<u8>,
     },
     ManageDsaIT {
         criticality: bool,
     },
+}
+
+impl fmt::Debug for LdapControl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LdapControl::SyncRequest {
+                criticality,
+                mode,
+                cookie,
+                reload_hint,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::SyncRequest")
+                    .field("criticality", &criticality)
+                    .field("mode", &mode)
+                    .field("cookie", &d_cookie)
+                    .field("reload_hint", &reload_hint)
+                    .finish()
+            }
+            LdapControl::SyncState {
+                state,
+                entry_uuid,
+                cookie,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::SyncState")
+                    .field("state", &state)
+                    .field("entry_uuid", &entry_uuid)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::SyncDone {
+                cookie,
+                refresh_deletes,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::SyncDone")
+                    .field("refresh_deletes", &refresh_deletes)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::AdDirsync {
+                flags,
+                max_bytes,
+                cookie,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::AdDirsync")
+                    .field("flags", &flags)
+                    .field("max_bytes", &max_bytes)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::SimplePagedResults { size, cookie } => {
+                let d_cookie = bytes_to_string!(cookie);
+                f.debug_struct("LdapControl::SimplePagedResults")
+                    .field("size", &size)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::ManageDsaIT { criticality } => f
+                .debug_struct("LdapControl::ManageDsaIT")
+                .field("criticality", &criticality)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -174,6 +256,15 @@ pub enum LdapBindCred {
     Simple(String), // Sasl
 }
 
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapBindCred {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LdapBindCred::Simple(_) => f.debug_struct("LdapBindCred::Simple").finish(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapBindRequest {
     pub dn: String,
@@ -268,6 +359,27 @@ impl LdapPartialAttribute {
     }
 }
 
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapPartialAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_struct("LdapPartialAttribute");
+        f.field("atype", &self.atype);
+
+        let atype_lower = self.atype.to_lowercase();
+        if atype_lower == "userpassword"
+            || atype_lower == "ipanthash"
+            || atype_lower == "oathtotptoken"
+            || atype_lower == "oathhotptoken"
+        {
+            f.field("vals", &["********"]);
+        } else {
+            let d_vals: Vec<_> = self.vals.iter().map(|val| bytes_to_string!(val)).collect();
+            f.field("vals", &d_vals);
+        }
+        f.finish()
+    }
+}
+
 // A PartialAttribute allows zero values, while
 // Attribute requires at least one value.
 pub type LdapAttribute = LdapPartialAttribute;
@@ -324,11 +436,22 @@ pub struct LdapModifyDNRequest {
     pub new_superior: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct LdapCompareRequest {
     pub dn: String,
     pub atype: String,
     pub val: Vec<u8>,
+}
+
+impl fmt::Debug for LdapCompareRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let d_val = bytes_to_string!(self.val);
+        f.debug_struct("LdapCompareRequest")
+            .field("dn", &self.dn)
+            .field("atype", &self.atype)
+            .field("val", &d_val)
+            .finish()
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -339,7 +462,22 @@ pub struct LdapExtendedRequest {
     pub value: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapExtendedRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_struct("LdapExtendedRequest");
+        f.field("name", &self.name);
+        if self.name == OID_PASSWORD_MODIFY {
+            f.field("value", &self.value.as_ref().map(|_| "vec![...]"));
+        } else {
+            let d_value = self.value.as_ref().map(|s| bytes_to_string!(s));
+            f.field("value", &d_value);
+        }
+        f.finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct LdapExtendedResponse {
     pub res: LdapResult,
     // 10
@@ -348,7 +486,20 @@ pub struct LdapExtendedResponse {
     pub value: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl fmt::Debug for LdapExtendedResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LdapExtendedResponse")
+            .field("result", &self.res)
+            .field("name", &self.name)
+            // Password modify responses may contain a generated password
+            // but they don't provide their OID in the name field. As a
+            // result we have to assume this value could always be sensitive.
+            .field("value", &"vec![...]")
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub enum LdapIntermediateResponse {
     SyncInfoNewCookie {
         cookie: Vec<u8>,
@@ -372,13 +523,59 @@ pub enum LdapIntermediateResponse {
     },
 }
 
+impl fmt::Debug for LdapIntermediateResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            LdapIntermediateResponse::SyncInfoNewCookie { cookie } => {
+                let d_cookie = bytes_to_string!(cookie);
+                f.debug_struct("LdapIntermediateResponse::SyncInfoNewCookie")
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapIntermediateResponse::SyncInfoRefreshDelete { cookie, done } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::SyncInfoRefreshDelete")
+                    .field("cookie", &d_cookie)
+                    .field("done", &done)
+                    .finish()
+            }
+            LdapIntermediateResponse::SyncInfoRefreshPresent { cookie, done } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::SyncInfoRefreshPresent")
+                    .field("cookie", &d_cookie)
+                    .field("done", &done)
+                    .finish()
+            }
+            LdapIntermediateResponse::SyncInfoIdSet {
+                cookie,
+                refresh_deletes,
+                syncuuids,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::SyncInfoIdSet")
+                    .field("cookie", &d_cookie)
+                    .field("refresh_deletes", &refresh_deletes)
+                    .field("syncuuids", &syncuuids)
+                    .finish()
+            }
+            LdapIntermediateResponse::Raw { name, value } => {
+                let d_value = value.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::Raw")
+                    .field("name", &name)
+                    .field("value", &d_value)
+                    .finish()
+            }
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub struct LdapWhoamiRequest {}
 
 impl From<LdapWhoamiRequest> for LdapExtendedRequest {
     fn from(_value: LdapWhoamiRequest) -> LdapExtendedRequest {
         LdapExtendedRequest {
-            name: "1.3.6.1.4.1.4203.1.11.3".to_string(),
+            name: OID_WHOAMI.to_string(),
             value: None,
         }
     }
@@ -413,10 +610,36 @@ pub struct LdapPasswordModifyRequest {
     pub new_password: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapPasswordModifyRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_struct("LdapPasswordModifyRequest");
+        f.field("user_identity", &self.user_identity);
+        f.field(
+            "old_password",
+            &self.old_password.as_ref().map(|_| "********"),
+        );
+        f.field(
+            "new_password",
+            &self.old_password.as_ref().map(|_| "********"),
+        );
+        f.finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct LdapPasswordModifyResponse {
     pub res: LdapResult,
     pub gen_password: Option<String>,
+}
+
+impl fmt::Debug for LdapPasswordModifyResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LdapPasswordModifyResponse")
+            .field("result", &self.res)
+            .field("gen_password", &self.gen_password.is_some())
+            .finish()
+    }
 }
 
 impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
@@ -456,7 +679,7 @@ impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
             .expect("Failed to encode inner structure, this is a bug!");
 
         LdapExtendedRequest {
-            name: "1.3.6.1.4.1.4203.1.11.1".to_string(),
+            name: OID_PASSWORD_MODIFY.to_string(),
             value: Some(bytes.to_vec()),
         }
     }
@@ -466,8 +689,7 @@ impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
     type Error = LdapProtoError;
 
     fn try_from(value: &LdapExtendedRequest) -> Result<Self, Self::Error> {
-        // 1.3.6.1.4.1.4203.1.11.1
-        if value.name != "1.3.6.1.4.1.4203.1.11.1" {
+        if value.name != OID_PASSWORD_MODIFY {
             return Err(LdapProtoError::PasswordModifyRequestOid);
         }
 
@@ -1237,8 +1459,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .and_then(|bv| String::from_utf8(bv).ok())
-                    .ok_or(LdapProtoError::ControlPagedUtf8)?;
+                    .ok_or(LdapProtoError::ControlPagedCookie)?;
 
                 Ok(LdapControl::SimplePagedResults { size, cookie })
             }
@@ -1401,7 +1622,7 @@ impl From<LdapControl> for Tag {
                         ..Default::default()
                     }),
                     Tag::OctetString(OctetString {
-                        inner: Vec::from(cookie),
+                        inner: cookie,
                         ..Default::default()
                     }),
                 ];
@@ -3345,54 +3566,6 @@ impl TryFrom<i64> for LdapResultCode {
                 Err(LdapProtoError::ResultCode)
             }
         }
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapBindCred {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, r#"Simple("********")"#)
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapPartialAttribute {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("LdapPartialAttribute");
-        f.field("atype", &self.atype);
-        if self.atype == "userPassword" && self.vals.len() == 1 {
-            f.field("vals", &vec!["********".to_string()]);
-        } else {
-            f.field("vals", &self.vals);
-        }
-        f.finish()
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapExtendedRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("LdapExtendedRequest");
-        f.field("name", &self.name);
-        f.field("value", &self.value.as_ref().map(|_| "vec![...]"));
-        f.finish()
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapPasswordModifyRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("LdapPasswordModifyRequest");
-        f.field("user_identity", &self.user_identity);
-        f.field(
-            "old_password",
-            &self.old_password.as_ref().map(|_| "********"),
-        );
-        f.field(
-            "new_password",
-            &self.old_password.as_ref().map(|_| "********"),
-        );
-        f.finish()
     }
 }
 

@@ -15,6 +15,8 @@ use clap::Parser;
 use ldap3_client::proto::LdapFilter;
 use ldap3_client::*;
 
+use base64::{engine::general_purpose, Engine as _};
+
 include!("./ldap_opt.rs");
 
 #[tokio::main(flavor = "current_thread")]
@@ -190,7 +192,7 @@ async fn main() {
             let mode = proto::SyncRequestMode::RefreshOnly;
 
             let cookie = if let Some(cookie) = cookie {
-                match base64::decode_config(&cookie, base64::STANDARD_NO_PAD) {
+                match general_purpose::URL_SAFE.decode(&cookie) {
                     Ok(c) => Some(c),
                     Err(e) => {
                         error!(?e, "Failed to parse cookie");
@@ -250,7 +252,7 @@ async fn main() {
                     println!(
                         "cookie: {}",
                         cookie
-                            .map(|bin| base64::encode_config(bin, base64::STANDARD_NO_PAD))
+                            .map(|bin| general_purpose::URL_SAFE.encode(bin))
                             .unwrap_or_else(|| "NONE".to_string())
                     );
                 }
@@ -270,7 +272,7 @@ async fn main() {
         }
         LdapAction::AdDirsync { basedn, cookie } => {
             let cookie = if let Some(cookie) = cookie {
-                match base64::decode_config(&cookie, base64::STANDARD_NO_PAD) {
+                match general_purpose::URL_SAFE.decode(&cookie) {
                     Ok(c) => Some(c),
                     Err(e) => {
                         error!(?e, "Failed to parse cookie");
@@ -309,7 +311,7 @@ async fn main() {
                         "cookie: {}",
                         sync_repl
                             .cookie
-                            .map(|bin| base64::encode_config(bin, base64::STANDARD_NO_PAD))
+                            .map(|bin| general_purpose::URL_SAFE.encode(bin))
                             .unwrap_or_else(|| "NONE".to_string())
                     );
                 }

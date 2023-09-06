@@ -16,6 +16,7 @@ strict = []
 openssl-vendored = ["openssl/vendored"]
 
 [dependencies]
+base64.workspace = true
 bytes.workspace = true
 lber.workspace = true
 nom.workspace = true

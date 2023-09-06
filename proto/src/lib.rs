@@ -540,7 +540,7 @@ mod tests {
             }),
             ctrl: vec![LdapControl::SimplePagedResults {
                 size: 100,
-                cookie: "opaque".to_string(),
+                cookie: b"opaque".to_vec(),
             }],
         });
     }

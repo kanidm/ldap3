@@ -55,8 +55,8 @@ pub enum LdapProtoError {
     ControlAdDirsyncInteger,
     #[error("Invalid integer in paged search control")]
     ControlPagedInteger,
-    #[error("Invalid utf8 data in paged search control")]
-    ControlPagedUtf8,
+    #[error("Missing cookie data in paged search control")]
+    ControlPagedCookie,
 
     #[error("Invalid BER in bind credentials")]
     BindCredBer,
