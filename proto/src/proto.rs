@@ -969,7 +969,11 @@ impl TryFrom<StructureTag> for LdapMsg {
             .map(TryInto::<LdapControl>::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(LdapMsg { msgid, op, ctrl })
+        let msg = LdapMsg { msgid, op, ctrl };
+
+        trace!(ldapmsg = ?msg);
+
+        Ok(msg)
     }
 }
 
