@@ -10,6 +10,7 @@ use lber::write as lber_write;
 use lber::parse::Parser;
 
 use bytes::BytesMut;
+#[cfg(feature = "serde")]
 use serde::Deserialize;
 use std::fmt;
 use uuid::Uuid;
