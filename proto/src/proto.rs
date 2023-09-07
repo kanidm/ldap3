@@ -29,7 +29,7 @@ macro_rules! bytes_to_string {
         if let Ok(s) = String::from_utf8($bytes.clone()) {
             s
         } else {
-            general_purpose::URL_SAFE.encode(&$bytes)
+            format!("b64[{}]", general_purpose::URL_SAFE.encode(&$bytes))
         }
     };
 }
