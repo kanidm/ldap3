@@ -10,12 +10,29 @@ use lber::write as lber_write;
 use lber::parse::Parser;
 
 use bytes::BytesMut;
-use uuid::Uuid;
 use serde::Deserialize;
+use std::fmt;
+use uuid::Uuid;
 
+use crate::error::LdapProtoError;
 use std::convert::{From, TryFrom};
-use std::iter::{once, once_with};
 use std::hash::Hash;
+use std::iter::{once, once_with};
+
+use base64::{engine::general_purpose, Engine as _};
+
+pub const OID_WHOAMI: &str = "1.3.6.1.4.1.4203.1.11.3";
+pub const OID_PASSWORD_MODIFY: &str = "1.3.6.1.4.1.4203.1.11.1";
+
+macro_rules! bytes_to_string {
+    ($bytes:expr) => {
+        if let Ok(s) = String::from_utf8($bytes.clone()) {
+            s
+        } else {
+            format!("b64[{}]", general_purpose::URL_SAFE.encode(&$bytes))
+        }
+    };
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapMsg {
@@ -40,7 +57,7 @@ pub enum SyncStateValue {
     Delete = 3,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum LdapControl {
     SyncRequest {
         // Shouldn't this imply true?
@@ -60,15 +77,84 @@ pub enum LdapControl {
     },
     AdDirsync {
         flags: i64,
-        // Msdn and wireshark disagree on the name oof this type.
+        // Msdn and wireshark disagree on the name of this type.
         max_bytes: i64,
         cookie: Option<Vec<u8>>,
     },
     // https://www.ietf.org/rfc/rfc2696.txt
     SimplePagedResults {
         size: i64,
-        cookie: String,
+        cookie: Vec<u8>,
     },
+    ManageDsaIT {
+        criticality: bool,
+    },
+}
+
+impl fmt::Debug for LdapControl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LdapControl::SyncRequest {
+                criticality,
+                mode,
+                cookie,
+                reload_hint,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::SyncRequest")
+                    .field("criticality", &criticality)
+                    .field("mode", &mode)
+                    .field("cookie", &d_cookie)
+                    .field("reload_hint", &reload_hint)
+                    .finish()
+            }
+            LdapControl::SyncState {
+                state,
+                entry_uuid,
+                cookie,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::SyncState")
+                    .field("state", &state)
+                    .field("entry_uuid", &entry_uuid)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::SyncDone {
+                cookie,
+                refresh_deletes,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::SyncDone")
+                    .field("refresh_deletes", &refresh_deletes)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::AdDirsync {
+                flags,
+                max_bytes,
+                cookie,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapControl::AdDirsync")
+                    .field("flags", &flags)
+                    .field("max_bytes", &max_bytes)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::SimplePagedResults { size, cookie } => {
+                let d_cookie = bytes_to_string!(cookie);
+                f.debug_struct("LdapControl::SimplePagedResults")
+                    .field("size", &size)
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapControl::ManageDsaIT { criticality } => f
+                .debug_struct("LdapControl::ManageDsaIT")
+                .field("criticality", &criticality)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -170,6 +256,15 @@ pub enum LdapBindCred {
     Simple(String), // Sasl
 }
 
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapBindCred {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LdapBindCred::Simple(_) => f.debug_struct("LdapBindCred::Simple").finish(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapBindRequest {
     pub dn: String,
@@ -184,7 +279,7 @@ pub struct LdapBindResponse {
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "lowercase") )]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 #[repr(i64)]
 pub enum LdapSearchScope {
     Base = 0,
@@ -253,12 +348,35 @@ pub struct LdapPartialAttribute {
 
 impl LdapPartialAttribute {
     pub fn size(&self) -> usize {
-        std::mem::size_of::<Self>() +
-            self.atype.capacity() +
-            (self.vals.capacity() * std::mem::size_of::<Vec<()>>() ) +
-            self.vals.iter().map(|val| 
-                val.capacity() * std::mem::size_of::<Vec<()>>()
-            ).sum::<usize>()
+        std::mem::size_of::<Self>()
+            + self.atype.capacity()
+            + (self.vals.capacity() * std::mem::size_of::<Vec<()>>())
+            + self
+                .vals
+                .iter()
+                .map(|val| val.capacity() * std::mem::size_of::<Vec<()>>())
+                .sum::<usize>()
+    }
+}
+
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapPartialAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_struct("LdapPartialAttribute");
+        f.field("atype", &self.atype);
+
+        let atype_lower = self.atype.to_lowercase();
+        if atype_lower == "userpassword"
+            || atype_lower == "ipanthash"
+            || atype_lower == "oathtotptoken"
+            || atype_lower == "oathhotptoken"
+        {
+            f.field("vals", &["********"]);
+        } else {
+            let d_vals: Vec<_> = self.vals.iter().map(|val| bytes_to_string!(val)).collect();
+            f.field("vals", &d_vals);
+        }
+        f.finish()
     }
 }
 
@@ -274,9 +392,13 @@ pub struct LdapSearchResultEntry {
 
 impl LdapSearchResultEntry {
     pub fn size(&self) -> usize {
-        std::mem::size_of::<Self>() +
-            self.dn.capacity() +
-            self.attributes.iter().map(|attr| attr.size()).sum::<usize>()
+        std::mem::size_of::<Self>()
+            + self.dn.capacity()
+            + self
+                .attributes
+                .iter()
+                .map(|attr| attr.size())
+                .sum::<usize>()
     }
 }
 
@@ -314,11 +436,22 @@ pub struct LdapModifyDNRequest {
     pub new_superior: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct LdapCompareRequest {
     pub dn: String,
     pub atype: String,
     pub val: Vec<u8>,
+}
+
+impl fmt::Debug for LdapCompareRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let d_val = bytes_to_string!(self.val);
+        f.debug_struct("LdapCompareRequest")
+            .field("dn", &self.dn)
+            .field("atype", &self.atype)
+            .field("val", &d_val)
+            .finish()
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -329,7 +462,22 @@ pub struct LdapExtendedRequest {
     pub value: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapExtendedRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_struct("LdapExtendedRequest");
+        f.field("name", &self.name);
+        if self.name == OID_PASSWORD_MODIFY {
+            f.field("value", &self.value.as_ref().map(|_| "vec![...]"));
+        } else {
+            let d_value = self.value.as_ref().map(|s| bytes_to_string!(s));
+            f.field("value", &d_value);
+        }
+        f.finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct LdapExtendedResponse {
     pub res: LdapResult,
     // 10
@@ -338,7 +486,20 @@ pub struct LdapExtendedResponse {
     pub value: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl fmt::Debug for LdapExtendedResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LdapExtendedResponse")
+            .field("result", &self.res)
+            .field("name", &self.name)
+            // Password modify responses may contain a generated password
+            // but they don't provide their OID in the name field. As a
+            // result we have to assume this value could always be sensitive.
+            .field("value", &"vec![...]")
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub enum LdapIntermediateResponse {
     SyncInfoNewCookie {
         cookie: Vec<u8>,
@@ -362,13 +523,59 @@ pub enum LdapIntermediateResponse {
     },
 }
 
+impl fmt::Debug for LdapIntermediateResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            LdapIntermediateResponse::SyncInfoNewCookie { cookie } => {
+                let d_cookie = bytes_to_string!(cookie);
+                f.debug_struct("LdapIntermediateResponse::SyncInfoNewCookie")
+                    .field("cookie", &d_cookie)
+                    .finish()
+            }
+            LdapIntermediateResponse::SyncInfoRefreshDelete { cookie, done } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::SyncInfoRefreshDelete")
+                    .field("cookie", &d_cookie)
+                    .field("done", &done)
+                    .finish()
+            }
+            LdapIntermediateResponse::SyncInfoRefreshPresent { cookie, done } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::SyncInfoRefreshPresent")
+                    .field("cookie", &d_cookie)
+                    .field("done", &done)
+                    .finish()
+            }
+            LdapIntermediateResponse::SyncInfoIdSet {
+                cookie,
+                refresh_deletes,
+                syncuuids,
+            } => {
+                let d_cookie = cookie.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::SyncInfoIdSet")
+                    .field("cookie", &d_cookie)
+                    .field("refresh_deletes", &refresh_deletes)
+                    .field("syncuuids", &syncuuids)
+                    .finish()
+            }
+            LdapIntermediateResponse::Raw { name, value } => {
+                let d_value = value.as_ref().map(|s| bytes_to_string!(s));
+                f.debug_struct("LdapIntermediateResponse::Raw")
+                    .field("name", &name)
+                    .field("value", &d_value)
+                    .finish()
+            }
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub struct LdapWhoamiRequest {}
 
 impl From<LdapWhoamiRequest> for LdapExtendedRequest {
     fn from(_value: LdapWhoamiRequest) -> LdapExtendedRequest {
         LdapExtendedRequest {
-            name: "1.3.6.1.4.1.4203.1.11.3".to_string(),
+            name: OID_WHOAMI.to_string(),
             value: None,
         }
     }
@@ -380,10 +587,11 @@ pub struct LdapWhoamiResponse {
 }
 
 impl TryFrom<&LdapExtendedResponse> for LdapWhoamiResponse {
-    type Error = ();
+    type Error = LdapProtoError;
+
     fn try_from(value: &LdapExtendedResponse) -> Result<Self, Self::Error> {
         if value.name.is_some() {
-            return Err(());
+            return Err(LdapProtoError::WhoamiResponseName);
         }
 
         let dn = value
@@ -402,10 +610,36 @@ pub struct LdapPasswordModifyRequest {
     pub new_password: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// Implement by hand to avoid printing the password.
+impl fmt::Debug for LdapPasswordModifyRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_struct("LdapPasswordModifyRequest");
+        f.field("user_identity", &self.user_identity);
+        f.field(
+            "old_password",
+            &self.old_password.as_ref().map(|_| "********"),
+        );
+        f.field(
+            "new_password",
+            &self.old_password.as_ref().map(|_| "********"),
+        );
+        f.finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct LdapPasswordModifyResponse {
     pub res: LdapResult,
     pub gen_password: Option<String>,
+}
+
+impl fmt::Debug for LdapPasswordModifyResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LdapPasswordModifyResponse")
+            .field("result", &self.res)
+            .field("gen_password", &self.gen_password.is_some())
+            .finish()
+    }
 }
 
 impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
@@ -445,33 +679,35 @@ impl From<LdapPasswordModifyRequest> for LdapExtendedRequest {
             .expect("Failed to encode inner structure, this is a bug!");
 
         LdapExtendedRequest {
-            name: "1.3.6.1.4.1.4203.1.11.1".to_string(),
+            name: OID_PASSWORD_MODIFY.to_string(),
             value: Some(bytes.to_vec()),
         }
     }
 }
 
 impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
-    type Error = ();
+    type Error = LdapProtoError;
+
     fn try_from(value: &LdapExtendedRequest) -> Result<Self, Self::Error> {
-        // 1.3.6.1.4.1.4203.1.11.1
-        if value.name != "1.3.6.1.4.1.4203.1.11.1" {
-            return Err(());
+        if value.name != OID_PASSWORD_MODIFY {
+            return Err(LdapProtoError::PasswordModifyRequestOid);
         }
 
         let buf = if let Some(b) = &value.value {
             b
         } else {
-            return Err(());
+            return Err(LdapProtoError::PasswordModifyRequestEmpty);
         };
 
         let mut parser = Parser::new();
-        let (_rem, msg) = parser.parse(buf).map_err(|_| ())?;
+        let (_rem, msg) = parser
+            .parse(buf)
+            .map_err(|_| LdapProtoError::PasswordModifyRequestBer)?;
 
         let seq = msg
             .match_id(Types::Sequence as u64)
             .and_then(|t| t.expect_constructed())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::PasswordModifyRequestBer)?;
 
         let mut lpmr = LdapPasswordModifyRequest {
             user_identity: None,
@@ -484,13 +720,13 @@ impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
             let s = t
                 .expect_primitive()
                 .and_then(|bv| String::from_utf8(bv).ok())
-                .ok_or(())?;
+                .ok_or(LdapProtoError::PasswordModifyRequestBer)?;
 
             match id {
                 0 => lpmr.user_identity = Some(s),
                 1 => lpmr.old_password = Some(s),
                 2 => lpmr.new_password = Some(s),
-                _ => return Err(()),
+                _ => return Err(LdapProtoError::PasswordModifyRequestValueId),
             }
         }
 
@@ -528,25 +764,28 @@ impl From<LdapPasswordModifyResponse> for LdapExtendedResponse {
 }
 
 impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
-    type Error = ();
+    type Error = LdapProtoError;
+
     fn try_from(value: &LdapExtendedResponse) -> Result<Self, Self::Error> {
         if value.name.is_some() {
-            return Err(());
+            return Err(LdapProtoError::PasswordModifyResponseName);
         }
 
         let buf = if let Some(b) = &value.value {
             b
         } else {
-            return Err(());
+            return Err(LdapProtoError::PasswordModifyResponseEmpty);
         };
 
         let mut parser = Parser::new();
-        let (_rem, msg) = parser.parse(buf).map_err(|_| ())?;
+        let (_rem, msg) = parser
+            .parse(buf)
+            .map_err(|_| LdapProtoError::PasswordModifyResponseBer)?;
 
         let mut seq = msg
             .match_id(Types::Sequence as u64)
             .and_then(|t| t.expect_constructed())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::PasswordModifyResponseBer)?;
 
         let gen_password = seq
             .pop()
@@ -586,11 +825,15 @@ impl LdapMsg {
         LdapMsg { msgid, op, ctrl }
     }
 
-    pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, ()> {
+    pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, LdapProtoError> {
         let mut parser = lber::parse::Parser::new();
-        let (r1_bytes, msgid_tag) = parser.parse(bytes).map_err(|_| ())?;
+        let (r1_bytes, msgid_tag) = parser
+            .parse(bytes)
+            .map_err(|_| LdapProtoError::OlMemDumpBer)?;
 
-        let (r2_bytes, op_tag) = parser.parse(r1_bytes).map_err(|_| ())?;
+        let (r2_bytes, op_tag) = parser
+            .parse(r1_bytes)
+            .map_err(|_| LdapProtoError::OlMemDumpBer)?;
 
         let ctrl_tag = if r2_bytes.is_empty() {
             None
@@ -598,7 +841,7 @@ impl LdapMsg {
             parser
                 .parse(r2_bytes)
                 .map(|(_rem, tag)| Some(tag))
-                .map_err(|_| ())?
+                .map_err(|_| LdapProtoError::OlMemDumpBer)?
         };
 
         // The first item should be the messageId
@@ -610,7 +853,7 @@ impl LdapMsg {
             .and_then(ber_integer_to_i64)
             // Trunc to i32.
             .map(|i| i as i32)
-            .ok_or(())?;
+            .ok_or(LdapProtoError::OlMemDumpBer)?;
 
         let op = LdapOp::try_from(op_tag)?;
 
@@ -626,7 +869,7 @@ impl LdapMsg {
 }
 
 impl TryFrom<StructureTag> for LdapMsg {
-    type Error = ();
+    type Error = LdapProtoError;
 
     /// <https://tools.ietf.org/html/rfc4511#section-4.1.1>
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
@@ -665,8 +908,10 @@ impl TryFrom<StructureTag> for LdapMsg {
         let mut seq = value
             .match_id(Types::Sequence as u64)
             .and_then(|t| t.expect_constructed())
-            .ok_or(())
-            .map_err(|_| error!("Message is not constructed"))?;
+            .ok_or_else(|| {
+                error!("Message is not constructed");
+                LdapProtoError::LdapMsgBer
+            })?;
 
         // seq is now a vec of the inner elements.
         let (msgid_tag, op_tag, ctrl_tag) = match seq.len() {
@@ -686,7 +931,7 @@ impl TryFrom<StructureTag> for LdapMsg {
             }
             _ => {
                 error!("Invalid ldapmsg sequence length");
-                return Err(());
+                return Err(LdapProtoError::LdapMsgSeqLen);
             }
         };
 
@@ -703,35 +948,32 @@ impl TryFrom<StructureTag> for LdapMsg {
             .map(|i| i as i32)
             .ok_or_else(|| {
                 error!("Invalid msgid");
+                LdapProtoError::LdapMsgId
             })?;
 
         let op = op_tag.ok_or_else(|| {
             error!("No ldap op present");
+            LdapProtoError::LdapMsgOp
         })?;
         let op = LdapOp::try_from(op)?;
 
-        let ctrl = ctrl_tag
+        let ctrl_vec = ctrl_tag
             .and_then(|t| t.match_class(TagClass::Context))
             .and_then(|t| t.match_id(0))
             // So it's probably controls, decode them?
             .and_then(|t| t.expect_constructed())
-            .map(|inner| {
-                // This should now be a slice/array.
-                inner
-                    .into_iter()
-                    .filter_map(|t| {
-                        TryInto::<LdapControl>::try_into(t)
-                            .map_err(|e| {
-                                error!("Failed to parse ldapcontrol");
-                                e
-                            })
-                            .ok()
-                    })
-                    .collect()
-            })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
-        Ok(LdapMsg { msgid, op, ctrl })
+        let ctrl = ctrl_vec
+            .into_iter()
+            .map(TryInto::<LdapControl>::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let msg = LdapMsg { msgid, op, ctrl };
+
+        trace!(ldapmsg = ?msg);
+
+        Ok(msg)
     }
 }
 
@@ -770,13 +1012,13 @@ impl From<LdapMsg> for StructureTag {
 }
 
 impl TryFrom<StructureTag> for LdapOp {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         let StructureTag { class, id, payload } = value;
         if class != TagClass::Application {
             error!("ldap op is not tagged as application");
-            return Err(());
+            return Err(LdapProtoError::LdapOpTag);
         }
         match (id, payload) {
             // https://tools.ietf.org/html/rfc4511#section-4.2
@@ -803,7 +1045,7 @@ impl TryFrom<StructureTag> for LdapOp {
             }
             (10, PL::P(inner)) => String::from_utf8(inner)
                 .ok()
-                .ok_or(())
+                .ok_or(LdapProtoError::DelRequestBer)
                 .map(LdapOp::DelRequest),
             (11, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::DelResponse(lr))
@@ -817,7 +1059,7 @@ impl TryFrom<StructureTag> for LdapOp {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::CompareResult(lr))
             }
             (16, PL::P(inner)) => ber_integer_to_i64(inner)
-                .ok_or(())
+                .ok_or(LdapProtoError::AbandonRequestBer)
                 .map(|s| LdapOp::AbandonRequest(s as i32)),
             (23, PL::C(inner)) => LdapExtendedRequest::try_from(inner).map(LdapOp::ExtendedRequest),
             (24, PL::C(inner)) => {
@@ -828,7 +1070,7 @@ impl TryFrom<StructureTag> for LdapOp {
             }
             (id, _) => {
                 println!("unknown op -> {:?}", id);
-                Err(())
+                Err(LdapProtoError::LdapOpUnknown)
             }
         }
     }
@@ -942,13 +1184,13 @@ impl From<LdapOp> for Tag {
 }
 
 impl TryFrom<StructureTag> for LdapControl {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         let mut seq = value
             .match_id(Types::Sequence as u64)
             .and_then(|t| t.expect_constructed())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ControlBer)?;
 
         // We destructure in reverse order due to how vec in rust
         // works.
@@ -971,7 +1213,7 @@ impl TryFrom<StructureTag> for LdapControl {
                 let o = seq.pop();
                 (o, c, v)
             }
-            _ => return Err(()),
+            _ => return Err(LdapProtoError::ControlSeqLen),
         };
 
         // trace!(?oid_tag, ?criticality_tag, ?value_tag);
@@ -982,7 +1224,7 @@ impl TryFrom<StructureTag> for LdapControl {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ControlBer)?;
 
         match oid.as_str() {
             "1.3.6.1.4.1.4203.1.9.1.1" => {
@@ -998,12 +1240,16 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
+                let (_rem, value) = parser
+                    .parse(&value_ber)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
 
-                let mut value = value.expect_constructed().ok_or(())?;
+                let mut value = value
+                    .expect_constructed()
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 value.reverse();
 
@@ -1018,7 +1264,7 @@ impl TryFrom<StructureTag> for LdapControl {
                         3 => Some(SyncRequestMode::RefreshAndPersist),
                         _ => None,
                     })
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlSyncMode)?;
 
                 let cookie = value
                     .pop()
@@ -1050,12 +1296,16 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
+                let (_rem, value) = parser
+                    .parse(&value_ber)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
 
-                let mut value = value.expect_constructed().ok_or(())?;
+                let mut value = value
+                    .expect_constructed()
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 value.reverse();
 
@@ -1072,18 +1322,16 @@ impl TryFrom<StructureTag> for LdapControl {
                         3 => Some(SyncStateValue::Delete),
                         _ => None,
                     })
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlSyncState)?;
 
                 let entry_uuid = value
                     .pop()
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .ok_or(())
+                    .ok_or(LdapProtoError::ControlBer)
                     .and_then(|v| {
-                        Uuid::from_slice(&v).map_err(|_| {
-                            error!("Invalid syncUUID");
-                        })
+                        Uuid::from_slice(&v).map_err(|_| LdapProtoError::ControlSyncUuid)
                     })?;
 
                 let cookie = value
@@ -1106,12 +1354,16 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
+                let (_rem, value) = parser
+                    .parse(&value_ber)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
 
-                let mut value = value.expect_constructed().ok_or(())?;
+                let mut value = value
+                    .expect_constructed()
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 value.reverse();
 
@@ -1139,12 +1391,16 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
+                let (_rem, value) = parser
+                    .parse(&value_ber)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
 
-                let mut value = value.expect_constructed().ok_or(())?;
+                let mut value = value
+                    .expect_constructed()
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 value.reverse();
 
@@ -1154,7 +1410,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_id(Types::Integer as u64))
                     .and_then(|t| t.expect_primitive())
                     .and_then(ber_integer_to_i64)
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlAdDirsyncInteger)?;
 
                 let max_bytes = value
                     .pop()
@@ -1162,7 +1418,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_id(Types::Integer as u64))
                     .and_then(|t| t.expect_primitive())
                     .and_then(ber_integer_to_i64)
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlAdDirsyncInteger)?;
 
                 let cookie = value
                     .pop()
@@ -1181,12 +1437,16 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 let mut parser = Parser::new();
-                let (_rem, value) = parser.parse(&value_ber).map_err(|_| ())?;
+                let (_rem, value) = parser
+                    .parse(&value_ber)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
 
-                let mut value = value.expect_constructed().ok_or(())?;
+                let mut value = value
+                    .expect_constructed()
+                    .ok_or(LdapProtoError::ControlBer)?;
 
                 value.reverse();
 
@@ -1196,21 +1456,34 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_id(Types::Integer as u64))
                     .and_then(|t| t.expect_primitive())
                     .and_then(ber_integer_to_i64)
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlPagedInteger)?;
 
                 let cookie = value
                     .pop()
                     .and_then(|t| t.match_class(TagClass::Universal))
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
-                    .and_then(|bv| String::from_utf8(bv).ok())
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::ControlPagedCookie)?;
 
                 Ok(LdapControl::SimplePagedResults { size, cookie })
             }
-            o => {
-                error!(%o, "Unsupported control oid");
-                Err(())
+            "2.16.840.1.113730.3.4.2" => {
+                // ManageDsaIT per https://www.rfc-editor.org/rfc/rfc3296
+
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                // Has no content.
+
+                Ok(LdapControl::ManageDsaIT { criticality })
+            }
+            oid => {
+                warn!(%oid, "Unsupported control oid");
+                Err(LdapProtoError::ControlUnknown)
             }
         }
     }
@@ -1353,7 +1626,7 @@ impl From<LdapControl> for Tag {
                         ..Default::default()
                     }),
                     Tag::OctetString(OctetString {
-                        inner: Vec::from(cookie),
+                        inner: cookie,
                         ..Default::default()
                     }),
                 ];
@@ -1366,6 +1639,9 @@ impl From<LdapControl> for Tag {
                         ..Default::default()
                     })),
                 )
+            }
+            LdapControl::ManageDsaIT { criticality } => {
+                ("2.16.840.1.113730.3.4.2", criticality, None)
             }
         };
 
@@ -1400,11 +1676,11 @@ impl From<LdapControl> for Tag {
 }
 
 impl TryFrom<StructureTag> for LdapBindCred {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         if value.class != TagClass::Context {
-            return Err(());
+            return Err(LdapProtoError::BindCredBer);
         }
 
         match value.id {
@@ -1412,14 +1688,14 @@ impl TryFrom<StructureTag> for LdapBindCred {
                 .expect_primitive()
                 .and_then(|bv| String::from_utf8(bv).ok())
                 .map(LdapBindCred::Simple)
-                .ok_or(()),
-            _ => Err(()),
+                .ok_or(LdapProtoError::BindCredBer),
+            _ => Err(LdapProtoError::BindCredId),
         }
     }
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapBindRequest {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         // https://tools.ietf.org/html/rfc4511#section-4.2
@@ -1433,9 +1709,9 @@ impl TryFrom<Vec<StructureTag>> for LdapBindRequest {
             .and_then(|t| t.match_id(Types::Integer as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
-            .ok_or(())?;
+            .ok_or(LdapProtoError::BindRequestVersion)?;
         if v != 3 {
-            return Err(());
+            return Err(LdapProtoError::BindRequestVersion);
         };
 
         // Get the DN
@@ -1445,13 +1721,13 @@ impl TryFrom<Vec<StructureTag>> for LdapBindRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::BindRequestBer)?;
 
         // Andddd get the credential
         let cred = value
             .pop()
             .and_then(|v| LdapBindCred::try_from(v).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::BindRequestBer)?;
 
         Ok(LdapBindRequest { dn, cred })
     }
@@ -1532,7 +1808,9 @@ impl From<LdapResult> for Vec<Tag> {
 }
 
 impl LdapResult {
-    fn try_from_tag(mut value: Vec<StructureTag>) -> Result<(Self, Vec<StructureTag>), ()> {
+    fn try_from_tag(
+        mut value: Vec<StructureTag>,
+    ) -> Result<(Self, Vec<StructureTag>), LdapProtoError> {
         // First, reverse all the elements so we are in the correct order.
         value.reverse();
 
@@ -1542,7 +1820,7 @@ impl LdapResult {
             .and_then(|t| t.match_id(Types::Enumerated as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
-            .ok_or(())
+            .ok_or(LdapProtoError::ResultBer)
             .and_then(LdapResultCode::try_from)?;
 
         let matcheddn = value
@@ -1551,7 +1829,7 @@ impl LdapResult {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ResultBer)?;
 
         let message = value
             .pop()
@@ -1559,7 +1837,7 @@ impl LdapResult {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ResultBer)?;
 
         let (_referrals, other): (Vec<_>, Vec<_>) = value.into_iter().partition(|v| v.id == 3);
 
@@ -1605,7 +1883,7 @@ impl LdapBindResponse {
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapBindResponse {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         // This MUST be the first thing we do!
@@ -1638,18 +1916,19 @@ impl From<LdapBindResponse> for Vec<Tag> {
 }
 
 impl TryFrom<StructureTag> for LdapFilter {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         if value.class != TagClass::Context {
             error!("Invalid tagclass");
-            return Err(());
+            return Err(LdapProtoError::FilterTag);
         };
 
         match value.id {
             0 => {
                 let inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid and filter");
+                    LdapProtoError::FilterBer
                 })?;
                 let vf: Result<Vec<_>, _> = inner.into_iter().map(LdapFilter::try_from).collect();
                 Ok(LdapFilter::And(vf?))
@@ -1657,6 +1936,7 @@ impl TryFrom<StructureTag> for LdapFilter {
             1 => {
                 let inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid or filter");
+                    LdapProtoError::FilterBer
                 })?;
                 let vf: Result<Vec<_>, _> = inner.into_iter().map(LdapFilter::try_from).collect();
                 Ok(LdapFilter::Or(vf?))
@@ -1667,6 +1947,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     .and_then(|mut i| i.pop())
                     .ok_or_else(|| {
                         trace!("invalid not filter");
+                        LdapProtoError::FilterBer
                     })?;
                 let inner_filt = LdapFilter::try_from(inner)?;
                 Ok(LdapFilter::Not(Box::new(inner_filt)))
@@ -1674,6 +1955,7 @@ impl TryFrom<StructureTag> for LdapFilter {
             3 => {
                 let mut inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid eq filter");
+                    LdapProtoError::FilterBer
                 })?;
                 inner.reverse();
 
@@ -1691,6 +1973,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid attribute in eq filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 let v = inner
@@ -1713,6 +1996,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid value in eq filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 Ok(LdapFilter::Equality(a, v))
@@ -1720,6 +2004,7 @@ impl TryFrom<StructureTag> for LdapFilter {
             4 => {
                 let mut inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid sub filter");
+                    LdapProtoError::FilterBer
                 })?;
                 inner.reverse();
 
@@ -1729,7 +2014,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
                     .and_then(|bv| String::from_utf8(bv).ok())
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::FilterBer)?;
 
                 let f = inner
                     .pop()
@@ -1774,13 +2059,14 @@ impl TryFrom<StructureTag> for LdapFilter {
                         }
                         Some(filter)
                     })
-                    .ok_or(())?;
+                    .ok_or(LdapProtoError::FilterBer)?;
 
                 Ok(LdapFilter::Substring(ty, f))
             }
             5 => {
                 let mut inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid ge filter");
+                    LdapProtoError::FilterBer
                 })?;
                 inner.reverse();
 
@@ -1798,6 +2084,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid attribute in ge filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 let v = inner
@@ -1820,6 +2107,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid value in ge filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 Ok(LdapFilter::GreaterOrEqual(a, v))
@@ -1827,6 +2115,7 @@ impl TryFrom<StructureTag> for LdapFilter {
             6 => {
                 let mut inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid le filter");
+                    LdapProtoError::FilterBer
                 })?;
                 inner.reverse();
 
@@ -1844,6 +2133,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid attribute in le filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 let v = inner
@@ -1866,6 +2156,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid value in le filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 Ok(LdapFilter::LessOrEqual(a, v))
@@ -1876,12 +2167,14 @@ impl TryFrom<StructureTag> for LdapFilter {
                     .and_then(|bv| String::from_utf8(bv).ok())
                     .ok_or_else(|| {
                         trace!("invalid pres filter");
+                        LdapProtoError::FilterBer
                     })?;
                 Ok(LdapFilter::Present(a))
             }
             8 => {
                 let mut inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid approx filter");
+                    LdapProtoError::FilterBer
                 })?;
                 inner.reverse();
 
@@ -1899,6 +2192,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid attribute in approx filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 let v = inner
@@ -1921,6 +2215,7 @@ impl TryFrom<StructureTag> for LdapFilter {
                     })
                     .ok_or_else(|| {
                         trace!("invalid value in approx filter");
+                        LdapProtoError::FilterBer
                     })?;
 
                 Ok(LdapFilter::Approx(a, v))
@@ -1928,6 +2223,7 @@ impl TryFrom<StructureTag> for LdapFilter {
             9 => {
                 let inner = value.expect_constructed().ok_or_else(|| {
                     trace!("invalid extensible filter");
+                    LdapProtoError::FilterBer
                 })?;
 
                 let mut filter = LdapMatchingRuleAssertion::default();
@@ -1937,22 +2233,27 @@ impl TryFrom<StructureTag> for LdapFilter {
                         (TagClass::Context, 1, PL::P(s)) => {
                             filter.matching_rule = Some(String::from_utf8(s).map_err(|e| {
                                 trace!(?e);
+                                LdapProtoError::FilterBer
                             })?)
                         }
                         (TagClass::Context, 2, PL::P(s)) => {
                             filter.type_ = Some(String::from_utf8(s).map_err(|e| {
                                 trace!(?e);
+                                LdapProtoError::FilterBer
                             })?)
                         }
                         (TagClass::Context, 3, PL::P(s)) => {
-                            filter.match_value = String::from_utf8(s).map_err(|e| trace!(?e))?
+                            filter.match_value = String::from_utf8(s).map_err(|e| {
+                                trace!(?e);
+                                LdapProtoError::FilterBer
+                            })?
                         }
                         (TagClass::Context, 4, PL::P(s)) => {
                             filter.dn_attributes = ber_bool_to_bool(s).unwrap_or(false);
                         }
                         _ => {
                             trace!("invalid extensible filter");
-                            return Err(());
+                            return Err(LdapProtoError::FilterBer);
                         }
                     }
                 }
@@ -1961,7 +2262,7 @@ impl TryFrom<StructureTag> for LdapFilter {
             }
             _ => {
                 trace!("invalid value tag");
-                Err(())
+                Err(LdapProtoError::FilterBer)
             }
         }
     }
@@ -2125,7 +2426,7 @@ impl From<LdapFilter> for Tag {
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         value.reverse();
@@ -2138,6 +2439,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|bv| String::from_utf8(bv).ok())
             .ok_or_else(|| {
                 trace!("invalid basedn");
+                LdapProtoError::SearchBer
             })?;
         let scope = value
             .pop()
@@ -2153,8 +2455,9 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .ok_or_else(|| {
-                trace!("invalid scope")}
-            )
+                trace!("invalid scope");
+                LdapProtoError::SearchBer
+            })
             .and_then(LdapSearchScope::try_from)?;
         let aliases = value
             .pop()
@@ -2162,7 +2465,11 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.match_id(Types::Enumerated as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
-            .ok_or_else(|| trace!("invalid aliases"))
+            .ok_or_else(|| {
+                trace!("invalid aliases");
+
+                LdapProtoError::SearchBer
+            })
             .and_then(LdapDerefAliases::try_from)?;
         let sizelimit = value
             .pop()
@@ -2171,7 +2478,10 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .map(|v| v as i32)
-            .ok_or_else(|| trace!("invalid sizelimit"))?;
+            .ok_or_else(|| {
+                trace!("invalid sizelimit");
+                LdapProtoError::SearchBer
+            })?;
         let timelimit = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
@@ -2179,18 +2489,27 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .map(|v| v as i32)
-            .ok_or_else(|| trace!("invalid timelimit"))?;
+            .ok_or_else(|| {
+                trace!("invalid timelimit");
+                LdapProtoError::SearchBer
+            })?;
         let typesonly = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::Boolean as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_bool_to_bool)
-            .ok_or_else(|| trace!("invalid typesonly"))?;
+            .ok_or_else(|| {
+                trace!("invalid typesonly");
+                LdapProtoError::SearchBer
+            })?;
         let filter = value
             .pop()
             .and_then(|t| LdapFilter::try_from(t).ok())
-            .ok_or_else(|| trace!("invalid filter"))?;
+            .ok_or_else(|| {
+                trace!("invalid filter");
+                LdapProtoError::SearchBer
+            })?;
         let attrs = value
             .pop()
             .map(|attrs| {
@@ -2224,7 +2543,11 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
                     .collect();
                 r
             })
-            .ok_or_else(|| trace!("invalid attributes"))?;
+            .ok_or_else(|| {
+                trace!("invalid attributes");
+
+                LdapProtoError::SearchBer
+            })?;
 
         Ok(LdapSearchRequest {
             base,
@@ -2295,7 +2618,7 @@ impl From<LdapSearchRequest> for Vec<Tag> {
 }
 
 impl TryFrom<StructureTag> for LdapModify {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         // get the inner from the sequence
@@ -2303,7 +2626,7 @@ impl TryFrom<StructureTag> for LdapModify {
             .match_class(TagClass::Universal)
             .and_then(|t| t.match_id(Types::Sequence as u64))
             .and_then(|t| t.expect_constructed())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ModifyBer)?;
 
         inner.reverse();
 
@@ -2313,13 +2636,13 @@ impl TryFrom<StructureTag> for LdapModify {
             .and_then(|t| t.match_id(Types::Enumerated as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
-            .ok_or(())
+            .ok_or(LdapProtoError::ModifyBer)
             .and_then(LdapModifyType::try_from)?;
 
         let modification = inner
             .pop()
             .and_then(|t| LdapPartialAttribute::try_from(t).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ModifyBer)?;
 
         Ok(Self {
             operation,
@@ -2329,7 +2652,7 @@ impl TryFrom<StructureTag> for LdapModify {
 }
 
 impl TryFrom<StructureTag> for LdapPartialAttribute {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: StructureTag) -> Result<Self, Self::Error> {
         // get the inner from the sequence
@@ -2337,7 +2660,7 @@ impl TryFrom<StructureTag> for LdapPartialAttribute {
             .match_class(TagClass::Universal)
             .and_then(|t| t.match_id(Types::Sequence as u64))
             .and_then(|t| t.expect_constructed())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::PartialAttributeBer)?;
 
         inner.reverse();
 
@@ -2347,7 +2670,7 @@ impl TryFrom<StructureTag> for LdapPartialAttribute {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::PartialAttributeBer)?;
 
         let vals = inner
             .pop()
@@ -2365,14 +2688,14 @@ impl TryFrom<StructureTag> for LdapPartialAttribute {
                     .collect();
                 r
             })
-            .ok_or(())?;
+            .ok_or(LdapProtoError::PartialAttributeBer)?;
 
         Ok(LdapPartialAttribute { atype, vals })
     }
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapSearchResultEntry {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         value.reverse();
@@ -2383,7 +2706,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchResultEntry {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::SearchResultEntryBer)?;
 
         let attributes = value
             .pop()
@@ -2397,7 +2720,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchResultEntry {
                     .collect();
                 r.ok()
             })
-            .ok_or(())?;
+            .ok_or(LdapProtoError::SearchResultEntryBer)?;
 
         Ok(LdapSearchResultEntry { dn, attributes })
     }
@@ -2447,7 +2770,7 @@ impl From<LdapSearchResultEntry> for Vec<Tag> {
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapExtendedRequest {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         // Put the values in order.
@@ -2459,7 +2782,7 @@ impl TryFrom<Vec<StructureTag>> for LdapExtendedRequest {
             .and_then(|t| t.match_id(0))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ExtendedRequestBer)?;
 
         let value = value
             .pop()
@@ -2499,7 +2822,7 @@ impl From<LdapExtendedRequest> for Vec<Tag> {
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapExtendedResponse {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         // This MUST be the first thing we do!
@@ -2581,7 +2904,7 @@ impl LdapExtendedResponse {
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(tags: Vec<StructureTag>) -> Result<Self, Self::Error> {
         let mut name = None;
@@ -2606,16 +2929,19 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
             (Some("1.3.6.1.4.1.4203.1.9.1.4"), Some(buf)) => {
                 // It's a sync info done. Start to process the value.
                 let mut parser = Parser::new();
-                let (_rem, msg) = parser.parse(buf).map_err(|_| ())?;
+                let (_rem, msg) = parser
+                    .parse(buf)
+                    .map_err(|_| LdapProtoError::IntermediateResponseBer)?;
 
                 if msg.class != TagClass::Context {
                     error!("Invalid tagclass");
-                    return Err(());
+                    return Err(LdapProtoError::IntermediateResponseTag);
                 };
 
                 let id = msg.id;
                 let mut inner = msg.expect_constructed().ok_or_else(|| {
                     trace!("invalid or filter");
+                    LdapProtoError::IntermediateResponseBer
                 })?;
 
                 match id {
@@ -2626,6 +2952,7 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
                                 .and_then(|t| t.expect_primitive())
                                 .ok_or_else(|| {
                                     trace!("invalid cookie");
+                                    LdapProtoError::IntermediateResponseBer
                                 })?;
                         Ok(LdapIntermediateResponse::SyncInfoNewCookie { cookie })
                     }
@@ -2639,7 +2966,10 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
                             .filter_map(|t| t.match_class(TagClass::Universal))
                         {
                             if t.id == Types::Boolean as u64 {
-                                done = t.expect_primitive().and_then(ber_bool_to_bool).ok_or(())?;
+                                done = t
+                                    .expect_primitive()
+                                    .and_then(ber_bool_to_bool)
+                                    .ok_or(LdapProtoError::IntermediateResponseBer)?;
                             } else if t.id == Types::OctetString as u64 {
                                 cookie = t.expect_primitive();
                             } else {
@@ -2668,25 +2998,25 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
                             .and_then(|t| t.match_class(TagClass::Universal))
                             .and_then(|t| t.match_id(Types::Set as u64))
                             .and_then(|t| t.expect_constructed())
+                            .ok_or(LdapProtoError::IntermediateResponseBer)
                             .and_then(|bset| {
-                                let r: Option<Vec<_>> = bset
+                                let r: Result<Vec<_>, _> = bset
                                     .into_iter()
                                     .map(|bv| {
                                         bv.match_class(TagClass::Universal)
                                             .and_then(|t| t.match_id(Types::OctetString as u64))
                                             .and_then(|t| t.expect_primitive())
+                                            .ok_or(LdapProtoError::IntermediateResponseBer)
                                             .and_then(|v| {
-                                                Uuid::from_slice(&v)
-                                                    .map_err(|_| {
-                                                        error!("Invalid syncUUID");
-                                                    })
-                                                    .ok()
+                                                Uuid::from_slice(&v).map_err(|_| {
+                                                    error!("Invalid syncUUID");
+                                                    LdapProtoError::IntermediateResponseSyncUuid
+                                                })
                                             })
                                     })
                                     .collect();
                                 r
-                            })
-                            .ok_or(())?;
+                            })?;
 
                         let refresh_deletes = inner
                             .pop()
@@ -2705,8 +3035,8 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
                         })
                     }
                     _ => {
-                        trace!("invalid value tag");
-                        return Err(());
+                        trace!("invalid value id");
+                        Err(LdapProtoError::IntermediateResponseId)
                     }
                 }
             }
@@ -2891,20 +3221,20 @@ impl From<LdapIntermediateResponse> for Vec<Tag> {
 }
 
 impl TryFrom<i64> for LdapModifyType {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(LdapModifyType::Add),
             1 => Ok(LdapModifyType::Delete),
             2 => Ok(LdapModifyType::Replace),
-            _ => Err(()),
+            _ => Err(LdapProtoError::ModifyTypeValue),
         }
     }
 }
 
 impl TryFrom<i64> for LdapSearchScope {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
@@ -2912,13 +3242,13 @@ impl TryFrom<i64> for LdapSearchScope {
             1 => Ok(LdapSearchScope::OneLevel),
             2 => Ok(LdapSearchScope::Subtree),
             3 => Ok(LdapSearchScope::Children),
-            _ => Err(()),
+            _ => Err(LdapProtoError::SearchScopeValue),
         }
     }
 }
 
 impl TryFrom<i64> for LdapDerefAliases {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
@@ -2926,13 +3256,13 @@ impl TryFrom<i64> for LdapDerefAliases {
             1 => Ok(LdapDerefAliases::InSearching),
             2 => Ok(LdapDerefAliases::FindingBaseObj),
             3 => Ok(LdapDerefAliases::Always),
-            _ => Err(()),
+            _ => Err(LdapProtoError::DerefAliasesValue),
         }
     }
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapModifyRequest {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         value.reverse();
@@ -2943,25 +3273,26 @@ impl TryFrom<Vec<StructureTag>> for LdapModifyRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ModifyRequestBer)?;
 
         let changes = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::Sequence as u64))
             .and_then(|t| t.expect_constructed())
+            .ok_or(LdapProtoError::ModifyRequestBer)
             .and_then(|bset| {
-                let r: Result<Vec<_>, _> = bset.into_iter().map(LdapModify::try_from).collect();
-                r.ok()
-            })
-            .ok_or(())?;
+                bset.into_iter()
+                    .map(LdapModify::try_from)
+                    .collect::<Result<Vec<_>, _>>()
+            })?;
 
         Ok(Self { dn, changes })
     }
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapAddRequest {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         value.reverse();
@@ -2972,25 +3303,26 @@ impl TryFrom<Vec<StructureTag>> for LdapAddRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::AddRequestBer)?;
 
         let attributes = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::Sequence as u64))
             .and_then(|t| t.expect_constructed())
+            .ok_or(LdapProtoError::AddRequestBer)
             .and_then(|bset| {
-                let r: Result<Vec<_>, _> = bset.into_iter().map(LdapAttribute::try_from).collect();
-                r.ok()
-            })
-            .ok_or(())?;
+                bset.into_iter()
+                    .map(LdapAttribute::try_from)
+                    .collect::<Result<Vec<_>, _>>()
+            })?;
 
         Ok(LdapAddRequest { dn, attributes })
     }
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapModifyDNRequest {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         value.reverse();
@@ -3001,7 +3333,7 @@ impl TryFrom<Vec<StructureTag>> for LdapModifyDNRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ModifyDNRequestBer)?;
 
         let newrdn = value
             .pop()
@@ -3009,7 +3341,7 @@ impl TryFrom<Vec<StructureTag>> for LdapModifyDNRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ModifyDNRequestBer)?;
 
         let deleteoldrdn = value
             .pop()
@@ -3017,7 +3349,7 @@ impl TryFrom<Vec<StructureTag>> for LdapModifyDNRequest {
             .and_then(|t| t.match_id(Types::Boolean as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_bool_to_bool)
-            .ok_or(())?;
+            .ok_or(LdapProtoError::ModifyDNRequestBer)?;
 
         let new_superior = value
             .pop()
@@ -3036,7 +3368,7 @@ impl TryFrom<Vec<StructureTag>> for LdapModifyDNRequest {
 }
 
 impl TryFrom<Vec<StructureTag>> for LdapCompareRequest {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
         value.reverse();
@@ -3047,21 +3379,21 @@ impl TryFrom<Vec<StructureTag>> for LdapCompareRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::CompareRequestBer)?;
 
         let mut ava = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::Sequence as u64))
             .and_then(|t| t.expect_constructed())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::CompareRequestBer)?;
 
         let val = ava
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::CompareRequestBer)?;
 
         let atype = ava
             .pop()
@@ -3069,7 +3401,7 @@ impl TryFrom<Vec<StructureTag>> for LdapCompareRequest {
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
-            .ok_or(())?;
+            .ok_or(LdapProtoError::CompareRequestBer)?;
 
         Ok(Self { dn, atype, val })
     }
@@ -3189,7 +3521,7 @@ impl From<LdapModifyDNRequest> for Vec<Tag> {
 }
 
 impl TryFrom<i64> for LdapResultCode {
-    type Error = ();
+    type Error = LdapProtoError;
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
@@ -3235,57 +3567,9 @@ impl TryFrom<i64> for LdapResultCode {
             4096 => Ok(LdapResultCode::EsyncRefreshRequired),
             i => {
                 error!("Unknown i64 ecode {}", i);
-                Err(())
+                Err(LdapProtoError::ResultCode)
             }
         }
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapBindCred {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, r#"Simple("********")"#)
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapPartialAttribute {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("LdapPartialAttribute");
-        f.field("atype", &self.atype);
-        if self.atype == "userPassword" && self.vals.len() == 1 {
-            f.field("vals", &vec!["********".to_string()]);
-        } else {
-            f.field("vals", &self.vals);
-        }
-        f.finish()
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapExtendedRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("LdapExtendedRequest");
-        f.field("name", &self.name);
-        f.field("value", &self.value.as_ref().map(|_| "vec![...]"));
-        f.finish()
-    }
-}
-
-// Implement by hand to avoid printing the password.
-impl std::fmt::Debug for LdapPasswordModifyRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut f = f.debug_struct("LdapPasswordModifyRequest");
-        f.field("user_identity", &self.user_identity);
-        f.field(
-            "old_password",
-            &self.old_password.as_ref().map(|_| "********"),
-        );
-        f.field(
-            "new_password",
-            &self.old_password.as_ref().map(|_| "********"),
-        );
-        f.finish()
     }
 }
 
@@ -3303,6 +3587,6 @@ fn ber_integer_to_i64<V: AsRef<[u8]>>(v: V) -> Option<i64> {
     } else {
         8 - bv.len()
     };
-    raw[base..(bv.len() + base)].clone_from_slice(&bv[..]);
+    raw[base..(bv.len() + base)].clone_from_slice(bv);
     Some(i64::from_be_bytes(raw))
 }

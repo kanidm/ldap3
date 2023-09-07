@@ -6,7 +6,7 @@ use serde::{de, Deserialize, Deserializer};
 
 impl<'de> Deserialize<'de> for LdapFilter {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        fn de_error<E: de::Error>(e: peg::error::ParseError<peg::str::LineCol>) -> E {
+        fn de_error<E: de::Error>(e: &peg::error::ParseError<peg::str::LineCol>) -> E {
             E::custom(format_args!("LdapFilter parsing failed: {}", e))
         }
 
@@ -20,7 +20,7 @@ impl<'de> Deserialize<'de> for LdapFilter {
             }
 
             fn visit_str<E: de::Error>(self, value: &str) -> Result<LdapFilter, E> {
-                ldapfilter::parse(value).map_err(de_error)
+                ldapfilter::parse(value).map_err(|e| de_error(&e))
             }
         }
 

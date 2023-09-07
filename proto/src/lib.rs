@@ -15,6 +15,7 @@
 #[macro_use]
 extern crate tracing;
 
+pub mod error;
 pub mod filter;
 pub mod proto;
 pub mod simple;
@@ -31,10 +32,29 @@ use tokio_util::codec::{Decoder, Encoder};
 use tracing::{error, trace};
 
 pub use crate::filter::parse_ldap_filter_str;
-use crate::proto::LdapMsg;
 pub use crate::simple::*;
 
-pub struct LdapCodec;
+const KILOBYTES: usize = 1024;
+const DEFAULT_MAX_BER_SIZE: usize = 8 * KILOBYTES;
+
+pub struct LdapCodec {
+    max_ber_size: usize,
+}
+
+impl Default for LdapCodec {
+    fn default() -> Self {
+        LdapCodec {
+            max_ber_size: DEFAULT_MAX_BER_SIZE,
+        }
+    }
+}
+
+impl LdapCodec {
+    pub fn new(max_ber_size: Option<usize>) -> Self {
+        let max_ber_size = max_ber_size.unwrap_or(DEFAULT_MAX_BER_SIZE);
+        LdapCodec { max_ber_size }
+    }
+}
 
 impl Decoder for LdapCodec {
     type Item = LdapMsg;
@@ -59,8 +79,13 @@ impl Decoder for LdapCodec {
         // Consume how much is left over?
         let size = buf.len() - rem.len();
 
-        // helper for when we need to debug inputs.
-        trace!("{:?}", buf.to_vec());
+        if size > self.max_ber_size {
+            return Err(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "lber request too large",
+            ));
+        }
+
         if size == buf.len() {
             buf.clear();
         } else {
@@ -96,7 +121,7 @@ mod tests {
         ($req:expr) => {{
             let _ = tracing_subscriber::fmt::try_init();
             let mut buf = BytesMut::new();
-            let mut server_codec = LdapCodec;
+            let mut server_codec = LdapCodec::default();
             assert!(server_codec.encode($req.clone(), &mut buf).is_ok());
             debug!("buf {:x}", buf);
             let res = server_codec.decode(&mut buf).expect("failed to decode");
@@ -515,7 +540,7 @@ mod tests {
             }),
             ctrl: vec![LdapControl::SimplePagedResults {
                 size: 100,
-                cookie: "opaque".to_string(),
+                cookie: b"opaque".to_vec(),
             }],
         });
     }

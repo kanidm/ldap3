@@ -15,6 +15,8 @@ use clap::Parser;
 use ldap3_client::proto::LdapFilter;
 use ldap3_client::*;
 
+use base64::{engine::general_purpose, Engine as _};
+
 include!("./ldap_opt.rs");
 
 #[tokio::main(flavor = "current_thread")]
@@ -43,21 +45,19 @@ async fn main() {
             };
             (dn.clone(), pw)
         }
-    } else {
-        if opt.bind_passwd.is_some() {
-            let e = LdapError::AnonymousInvalidState;
-            if opt.json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&e).expect("CRITICAL: Serialisation Fault")
-                );
-            } else {
-                error!("Anonymous does not take a password - {}", e);
-            }
-            std::process::exit(e as i32);
+    } else if opt.bind_passwd.is_some() {
+        let e = LdapError::AnonymousInvalidState;
+        if opt.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&e).expect("CRITICAL: Serialisation Fault")
+            );
         } else {
-            ("".to_string(), "".to_string())
+            error!("Anonymous does not take a password - {}", e);
         }
+        std::process::exit(e as i32);
+    } else {
+        (String::new(), String::new())
     };
 
     let builder = LdapClientBuilder::new(&opt.url);
@@ -115,7 +115,7 @@ async fn main() {
                                     println!("{}: {}", attr, val);
                                 }
                             }
-                            println!("");
+                            println!();
                         }
                     }
                 }
@@ -192,7 +192,7 @@ async fn main() {
             let mode = proto::SyncRequestMode::RefreshOnly;
 
             let cookie = if let Some(cookie) = cookie {
-                match base64::decode_config(&cookie, base64::STANDARD_NO_PAD) {
+                match general_purpose::URL_SAFE.decode(&cookie) {
                     Ok(c) => Some(c),
                     Err(e) => {
                         error!(?e, "Failed to parse cookie");
@@ -226,7 +226,7 @@ async fn main() {
                                 println!("{}: {}", attr, val);
                             }
                         }
-                        println!("");
+                        println!();
                     }
                     if let Some(d_uuids) = &delete_uuids {
                         for entry_uuid in d_uuids {
@@ -236,15 +236,15 @@ async fn main() {
 
                     if let Some(p_uuids) = &present_uuids {
                         if !p_uuids.is_empty() {
-                            println!("");
+                            println!();
                         }
                         for entry_uuid in p_uuids {
                             println!("present entryuuid: {}", entry_uuid);
-                            println!("");
+                            println!();
                         }
                     }
 
-                    println!("");
+                    println!();
                     println!("refresh_deletes: {}", refresh_deletes);
                     println!("delete_phase: {}", delete_uuids.is_some());
                     println!("present_phase: {}", present_uuids.is_some());
@@ -252,7 +252,7 @@ async fn main() {
                     println!(
                         "cookie: {}",
                         cookie
-                            .map(|bin| base64::encode_config(&bin, base64::STANDARD_NO_PAD))
+                            .map(|bin| general_purpose::URL_SAFE.encode(bin))
                             .unwrap_or_else(|| "NONE".to_string())
                     );
                 }
@@ -272,7 +272,7 @@ async fn main() {
         }
         LdapAction::AdDirsync { basedn, cookie } => {
             let cookie = if let Some(cookie) = cookie {
-                match base64::decode_config(&cookie, base64::STANDARD_NO_PAD) {
+                match general_purpose::URL_SAFE.decode(&cookie) {
                     Ok(c) => Some(c),
                     Err(e) => {
                         error!(?e, "Failed to parse cookie");
@@ -294,24 +294,24 @@ async fn main() {
                                 println!("{}: {}", attr, val);
                             }
                         }
-                        println!("");
+                        println!();
                     }
                     for entry_uuid in &sync_repl.delete_uuids {
                         println!("delete entryuuid: {}", entry_uuid);
                     }
                     if !sync_repl.present_uuids.is_empty() {
-                        println!("");
+                        println!();
                     }
                     for entry_uuid in &sync_repl.present_uuids {
                         println!("delete entryuuid: {}", entry_uuid);
-                        println!("");
+                        println!();
                     }
-                    println!("");
+                    println!();
                     println!(
                         "cookie: {}",
                         sync_repl
                             .cookie
-                            .map(|bin| base64::encode_config(&bin, base64::STANDARD_NO_PAD))
+                            .map(|bin| general_purpose::URL_SAFE.encode(bin))
                             .unwrap_or_else(|| "NONE".to_string())
                     );
                 }

@@ -37,6 +37,8 @@ use std::fmt;
 use url::Url;
 use uuid::Uuid;
 
+use base64::{engine::general_purpose, Engine as _};
+
 pub use ldap3_proto::filter;
 pub use ldap3_proto::proto;
 
@@ -243,9 +245,7 @@ impl From<LdapSearchResultEntry> for LdapEntry {
                                     s.to_string()
                                 }
                             })
-                            .unwrap_or_else(|_| {
-                                base64::encode_config(&bin, base64::STANDARD_NO_PAD)
-                            })
+                            .unwrap_or_else(|_| general_purpose::URL_SAFE.encode(&bin))
                     })
                     .collect();
                 (atype, va)
@@ -412,7 +412,7 @@ impl<'a> LdapClientBuilder<'a> {
                     LdapError::TlsError
                 })?;
 
-            let _ = SslStream::connect(Pin::new(&mut tlsstream))
+            SslStream::connect(Pin::new(&mut tlsstream))
                 .await
                 .map_err(|e| {
                     error!(?e, "openssl");
@@ -422,14 +422,14 @@ impl<'a> LdapClientBuilder<'a> {
             info!("tls configured");
             let (r, w) = tokio::io::split(tlsstream);
             (
-                LdapWriteTransport::Tls(FramedWrite::new(w, LdapCodec)),
-                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec)),
+                LdapWriteTransport::Tls(FramedWrite::new(w, LdapCodec::default())),
+                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec::default())),
             )
         } else {
             let (r, w) = tokio::io::split(tcpstream);
             (
-                LdapWriteTransport::Plain(FramedWrite::new(w, LdapCodec)),
-                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec)),
+                LdapWriteTransport::Plain(FramedWrite::new(w, LdapCodec::default())),
+                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec::default())),
             )
         };
 
