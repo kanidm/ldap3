@@ -10,6 +10,7 @@ use lber::write as lber_write;
 use lber::parse::Parser;
 
 use bytes::BytesMut;
+#[cfg(feature = "serde")]
 use serde::Deserialize;
 use std::fmt;
 use uuid::Uuid;
@@ -29,7 +30,12 @@ macro_rules! bytes_to_string {
         if let Ok(s) = String::from_utf8($bytes.clone()) {
             s
         } else {
-            format!("b64[{}]", general_purpose::URL_SAFE.encode(&$bytes))
+            let mut s = format!("b64[{}]", general_purpose::URL_SAFE.encode(&$bytes));
+            if s.len() > 100 {
+                s.truncate(96);
+                s.push_str("...]");
+            }
+            s
         }
     };
 }
