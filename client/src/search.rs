@@ -52,6 +52,9 @@ impl LdapClient {
                     entries.push(entry.into());
                 }
                 // Error cases below
+                LdapOp::SearchResultReference(_) => {
+                    //pass
+                }
                 LdapOp::SearchResultDone(proto::LdapResult {
                     code,
                     message,
@@ -60,7 +63,7 @@ impl LdapClient {
                 }) => {
                     error!(%message);
                     break Err(LdapError::from(code));
-                }
+                },
                 op => {
                     trace!(?op, "<<<<==== ");
                     break Err(LdapError::InvalidProtocolState);

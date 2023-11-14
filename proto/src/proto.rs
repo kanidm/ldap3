@@ -233,6 +233,7 @@ pub enum LdapOp {
     SearchRequest(LdapSearchRequest),
     SearchResultEntry(LdapSearchResultEntry),
     SearchResultDone(LdapResult),
+    SearchResultReference(LdapSearchResultReference),
     // https://datatracker.ietf.org/doc/html/rfc4511#section-4.6
     ModifyRequest(LdapModifyRequest),
     ModifyResponse(LdapResult),
@@ -1067,6 +1068,8 @@ impl TryFrom<StructureTag> for LdapOp {
             (16, PL::P(inner)) => ber_integer_to_i64(inner)
                 .ok_or(LdapProtoError::AbandonRequestBer)
                 .map(|s| LdapOp::AbandonRequest(s as i32)),
+            (19, PL::C(inner)) => LdapSearchResultReference::try_from(inner)
+                .map(LdapOp::SearchResultReference),
             (23, PL::C(inner)) => LdapExtendedRequest::try_from(inner).map(LdapOp::ExtendedRequest),
             (24, PL::C(inner)) => {
                 LdapExtendedResponse::try_from(inner).map(LdapOp::ExtendedResponse)
@@ -1114,6 +1117,11 @@ impl From<LdapOp> for Tag {
                 class: TagClass::Application,
                 id: 5,
                 inner: lr.into(),
+            }),
+            LdapOp::SearchResultReference(urls) => Tag::Sequence(Sequence {
+                class: TagClass::Application,
+                id: 19,
+                inner: urls.into(),
             }),
             LdapOp::ModifyRequest(mr) => Tag::Sequence(Sequence {
                 class: TagClass::Application,
@@ -3491,6 +3499,25 @@ impl From<LdapAddRequest> for Vec<Tag> {
     }
 }
 
+impl From<LdapSearchResultReference> for Vec<Tag> {
+    fn from(value: LdapSearchResultReference) -> Self {
+        let LdapSearchResultReference { uris } = value;
+
+        // Create a vector to hold the sequence of URI tags
+        let uri_tags: Vec<Tag> = uris
+            .into_iter()
+            .map(|uri| {
+                Tag::OctetString(OctetString {
+                    inner: Vec::from(uri),
+                    ..Default::default()
+                })
+            })
+            .collect();
+
+        uri_tags
+    }
+}
+
 impl From<LdapModifyDNRequest> for Vec<Tag> {
     fn from(value: LdapModifyDNRequest) -> Vec<Tag> {
         let LdapModifyDNRequest {
@@ -3595,4 +3622,29 @@ fn ber_integer_to_i64<V: AsRef<[u8]>>(v: V) -> Option<i64> {
     };
     raw[base..(bv.len() + base)].clone_from_slice(bv);
     Some(i64::from_be_bytes(raw))
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+pub struct LdapSearchResultReference {
+    pub uris: Vec<String>,
+}
+
+impl TryFrom<Vec<StructureTag>> for LdapSearchResultReference {
+    type Error = LdapProtoError;
+
+    fn try_from(value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        let mut uris = Vec::new();
+
+        // Iterate over the StructureTags
+        for tag in value {
+            if let Some(bytes) = tag.expect_primitive() {
+                let uri = String::from_utf8(bytes).map_err(|_| LdapProtoError::LdapMsgBer)?;
+                uris.push(uri);
+            } else {
+                Err(LdapProtoError::LdapMsgBer)?;
+            }
+        }
+
+        Ok(LdapSearchResultReference { uris })
+    }
 }
