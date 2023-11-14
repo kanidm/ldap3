@@ -179,7 +179,10 @@ impl LdapClient {
                         error!("Invalid Sync Control encountered");
                         break Err(LdapError::InvalidProtocolState);
                     }
-                }
+                },
+                LdapOp::SearchResultReference(_search_reference) => {
+                    // pass
+                },
                 // Error cases below
                 LdapOp::SearchResultDone(proto::LdapResult {
                     code,
