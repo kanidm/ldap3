@@ -260,7 +260,43 @@ pub enum LdapOp {
 
 #[derive(Clone, PartialEq)]
 pub enum LdapBindCred {
-    Simple(String), // Sasl
+    Simple(String),        // Sasl
+    SASL(SaslCredentials), // Sasl
+}
+
+#[derive(Clone, PartialEq)]
+pub struct SaslCredentials {
+    pub mechanism: String,
+    pub credentials: Vec<u8>,
+}
+
+impl From<SaslCredentials> for StructureTag {
+    fn from(value: SaslCredentials) -> Self {
+        StructureTag {
+            id: 3,                    // SASL credentials are a SEQUENCE
+            class: TagClass::Context, // SEQUENCE is a universal type
+            payload: PL::C(vec![
+                StructureTag {
+                    class: TagClass::Universal,
+                    id: Types::OctetString as u64, // or Types::PrintableString as u64
+                    payload: PL::P(value.mechanism.into_bytes()),
+                },
+                StructureTag {
+                    class: TagClass::Universal,
+                    id: Types::OctetString as u64,
+                    payload: PL::P(value.credentials),
+                },
+            ]),
+        }
+    }
+}
+
+impl fmt::Debug for SaslCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SaslCredentials")
+            .field("mechanism", &self.mechanism)
+            .finish()
+    }
 }
 
 // Implement by hand to avoid printing the password.
@@ -268,6 +304,7 @@ impl fmt::Debug for LdapBindCred {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LdapBindCred::Simple(_) => f.debug_struct("LdapBindCred::Simple").finish(),
+            LdapBindCred::SASL(_) => f.debug_struct("LdapBindCred::SASL").finish(),
         }
     }
 }
@@ -281,7 +318,7 @@ pub struct LdapBindRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LdapBindResponse {
     pub res: LdapResult,
-    pub saslcreds: Option<String>,
+    pub saslcreds: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
@@ -815,6 +852,7 @@ impl From<LdapBindCred> for Tag {
                 class: TagClass::Context,
                 inner: Vec::from(pw),
             }),
+            LdapBindCred::SASL(token) => Tag::StructureTag(token.into()),
         }
     }
 }
@@ -1061,15 +1099,17 @@ impl TryFrom<StructureTag> for LdapOp {
             (13, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::ModifyDNResponse(lr))
             }
-            (14, PL::C(inner)) => LdapCompareRequest::try_from(inner).map(LdapOp::CompareRequest),
+            // https://datatracker.ietf.org/doc/html/rfc4511#section-4.1.9
+            (14, PL::C(inner)) => LdapBindResponse::try_from(inner).map(LdapOp::BindResponse),
             (15, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::CompareResult(lr))
             }
             (16, PL::P(inner)) => ber_integer_to_i64(inner)
                 .ok_or(LdapProtoError::AbandonRequestBer)
                 .map(|s| LdapOp::AbandonRequest(s as i32)),
-            (19, PL::C(inner)) => LdapSearchResultReference::try_from(inner)
-                .map(LdapOp::SearchResultReference),
+            (19, PL::C(inner)) => {
+                LdapSearchResultReference::try_from(inner).map(LdapOp::SearchResultReference)
+            }
             (23, PL::C(inner)) => LdapExtendedRequest::try_from(inner).map(LdapOp::ExtendedRequest),
             (24, PL::C(inner)) => {
                 LdapExtendedResponse::try_from(inner).map(LdapOp::ExtendedResponse)
@@ -1900,14 +1940,25 @@ impl TryFrom<Vec<StructureTag>> for LdapBindResponse {
     type Error = LdapProtoError;
 
     fn try_from(value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        trace!(?value);
         // This MUST be the first thing we do!
-        let (res, _remtag) = LdapResult::try_from_tag(value)?;
+        let (res, tags) = LdapResult::try_from_tag(value)?;
 
-        // Now with the remaining tags, populate anything else we need
-        Ok(LdapBindResponse {
-            res,
-            saslcreds: None,
-        })
+        // Now with the remaining tags, as per rfc4511#section-4.2.2, we extract the optional sasl creds. Class Context, id 7. OctetString.
+        let mut saslcreds = None;
+        if let Some(tag) = tags.get(0) {
+            //tag exist and is not empty
+            debug!(?tag);
+            let vec = tag
+                .clone()
+                .match_class(TagClass::Context)
+                .and_then(|t| t.match_id(7))
+                .and_then(|t| t.expect_primitive())
+                .ok_or(LdapProtoError::BindCredBer)?;
+            saslcreds = Some(vec);
+        } // could be no sasl creds here, so we don't error out.
+
+        Ok(LdapBindResponse { res, saslcreds })
     }
 }
 
@@ -1919,7 +1970,7 @@ impl From<LdapBindResponse> for Vec<Tag> {
             .chain(once_with(|| {
                 saslcreds.map(|sc| {
                     Tag::OctetString(OctetString {
-                        inner: Vec::from(sc),
+                        inner: sc,
                         ..Default::default()
                     })
                 })
