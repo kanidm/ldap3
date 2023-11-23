@@ -26,7 +26,8 @@ use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
 
 #[tokio::main]
-async fn main() -> Result<(), ()> {
+async fn main() -> anyhow::Result<()> {
+
     let subs = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
         .finish();
