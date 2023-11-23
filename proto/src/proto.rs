@@ -11,7 +11,7 @@ use lber::parse::Parser;
 
 use bytes::BytesMut;
 #[cfg(feature = "serde")]
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
@@ -41,6 +41,8 @@ macro_rules! bytes_to_string {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapMsg {
     pub msgid: i32,
     pub op: LdapOp,
@@ -49,6 +51,8 @@ pub struct LdapMsg {
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(i64)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum SyncRequestMode {
     RefreshOnly = 1,
     RefreshAndPersist = 3,
@@ -56,6 +60,8 @@ pub enum SyncRequestMode {
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(i64)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum SyncStateValue {
     Present = 0,
     Add = 1,
@@ -64,6 +70,8 @@ pub enum SyncStateValue {
 }
 
 #[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapControl {
     SyncRequest {
         // Shouldn't this imply true?
@@ -165,6 +173,8 @@ impl fmt::Debug for LdapControl {
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(i64)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapResultCode {
     Success = 0,
     OperationsError = 1,
@@ -217,6 +227,8 @@ pub enum LdapResultCode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapResult {
     pub code: LdapResultCode,
     pub matcheddn: String,
@@ -225,6 +237,8 @@ pub struct LdapResult {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapOp {
     BindRequest(LdapBindRequest),
     BindResponse(LdapBindResponse),
@@ -259,6 +273,8 @@ pub enum LdapOp {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapBindCred {
     Simple(String), // Sasl
 }
@@ -273,20 +289,24 @@ impl fmt::Debug for LdapBindCred {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapBindRequest {
     pub dn: String,
     pub cred: LdapBindCred,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapBindResponse {
     pub res: LdapResult,
     pub saslcreds: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[repr(i64)]
 pub enum LdapSearchScope {
     Base = 0,
@@ -298,6 +318,8 @@ pub enum LdapSearchScope {
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(i64)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapDerefAliases {
     Never = 0,
     InSearching = 1,
@@ -306,6 +328,8 @@ pub enum LdapDerefAliases {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapSubstringFilter {
     pub initial: Option<String>,
     pub any: Vec<String>,
@@ -313,6 +337,8 @@ pub struct LdapSubstringFilter {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapMatchingRuleAssertion {
     pub matching_rule: Option<String>,
     pub type_: Option<String>,
@@ -321,6 +347,8 @@ pub struct LdapMatchingRuleAssertion {
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapFilter {
     And(Vec<LdapFilter>),
     Or(Vec<LdapFilter>),
@@ -335,6 +363,8 @@ pub enum LdapFilter {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapSearchRequest {
     pub base: String,
     pub scope: LdapSearchScope,
@@ -348,6 +378,8 @@ pub struct LdapSearchRequest {
 
 // https://tools.ietf.org/html/rfc4511#section-4.1.7
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapPartialAttribute {
     pub atype: String,
     pub vals: Vec<Vec<u8>>,
@@ -392,6 +424,8 @@ impl fmt::Debug for LdapPartialAttribute {
 pub type LdapAttribute = LdapPartialAttribute;
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapSearchResultEntry {
     pub dn: String,
     pub attributes: Vec<LdapPartialAttribute>,
@@ -410,18 +444,24 @@ impl LdapSearchResultEntry {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapAddRequest {
     pub dn: String,
     pub attributes: Vec<LdapAttribute>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapModifyRequest {
     pub dn: String,
     pub changes: Vec<LdapModify>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapModify {
     pub operation: LdapModifyType,
     pub modification: LdapPartialAttribute,
@@ -429,6 +469,8 @@ pub struct LdapModify {
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(i64)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapModifyType {
     Add = 0,
     Delete = 1,
@@ -436,6 +478,8 @@ pub enum LdapModifyType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapModifyDNRequest {
     pub dn: String,
     pub newrdn: String,
@@ -444,6 +488,8 @@ pub struct LdapModifyDNRequest {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapCompareRequest {
     pub dn: String,
     pub atype: String,
@@ -462,6 +508,8 @@ impl fmt::Debug for LdapCompareRequest {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapExtendedRequest {
     // 0
     pub name: String,
@@ -485,6 +533,8 @@ impl fmt::Debug for LdapExtendedRequest {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapExtendedResponse {
     pub res: LdapResult,
     // 10
@@ -507,6 +557,8 @@ impl fmt::Debug for LdapExtendedResponse {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapIntermediateResponse {
     SyncInfoNewCookie {
         cookie: Vec<u8>,
@@ -1068,8 +1120,9 @@ impl TryFrom<StructureTag> for LdapOp {
             (16, PL::P(inner)) => ber_integer_to_i64(inner)
                 .ok_or(LdapProtoError::AbandonRequestBer)
                 .map(|s| LdapOp::AbandonRequest(s as i32)),
-            (19, PL::C(inner)) => LdapSearchResultReference::try_from(inner)
-                .map(LdapOp::SearchResultReference),
+            (19, PL::C(inner)) => {
+                LdapSearchResultReference::try_from(inner).map(LdapOp::SearchResultReference)
+            }
             (23, PL::C(inner)) => LdapExtendedRequest::try_from(inner).map(LdapOp::ExtendedRequest),
             (24, PL::C(inner)) => {
                 LdapExtendedResponse::try_from(inner).map(LdapOp::ExtendedResponse)
@@ -3625,6 +3678,8 @@ fn ber_integer_to_i64<V: AsRef<[u8]>>(v: V) -> Option<i64> {
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapSearchResultReference {
     pub uris: Vec<String>,
 }
