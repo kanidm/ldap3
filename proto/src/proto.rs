@@ -260,8 +260,8 @@ pub enum LdapOp {
 
 #[derive(Clone, PartialEq)]
 pub enum LdapBindCred {
-    Simple(String),        // Sasl
-    SASL(SaslCredentials), // Sasl
+    Simple(String),
+    SASL(SaslCredentials),
 }
 
 #[derive(Clone, PartialEq)]

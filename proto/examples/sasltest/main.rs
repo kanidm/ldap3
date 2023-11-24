@@ -1,5 +1,3 @@
-use core::panic;
-use futures_util::future::err;
 use sspi::builders::EmptyInitializeSecurityContext;
 use sspi::AuthIdentity;
 use sspi::ClientRequestFlags;
@@ -26,8 +24,7 @@ use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subs = tracing_subscriber::FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
         .finish();
@@ -41,9 +38,7 @@ async fn main() -> anyhow::Result<()> {
         &ldap_server_addr
     ));
 
-    let tcpstream = TcpStream::connect(addr)
-        .await
-        .map_err(|e| eprintln!("Failed to connect to -> {:?}", e))?;
+    let tcpstream = TcpStream::connect(addr).await?;
 
     let mut framed = Framed::new(tcpstream, LdapCodec::default());
 
@@ -62,45 +57,42 @@ async fn main() -> anyhow::Result<()> {
         ctrl: vec![],
     };
 
-    let _ = framed.send(msg).await.map_err(|e| {
-        eprintln!("Unable to send bind -> {:?}", e);
-    })?;
+    framed.send(msg).await?;
     loop {
-        if let Some(Ok(msg)) = dbg!(framed.next().await) {
-            if let LdapOp::BindResponse(res) = dbg!(msg.op) {
-                if res.res.code == LdapResultCode::Success {
-                    break;
-                } else if res.res.code == LdapResultCode::SaslBindInProgress {
-                    if let Some(ref cred) = res.saslcreds {
-                        let ntlm_token = ntlm.step(cred).unwrap();
-                        let msg = LdapMsg {
-                            msgid: 2,
-                            op: LdapOp::BindRequest(LdapBindRequest {
-                                dn: "".to_string(),
-                                cred: LdapBindCred::SASL(SaslCredentials {
-                                    mechanism: "GSS-SPNEGO".to_string(),
-                                    credentials: ntlm_token,
-                                }),
-                            }),
-                            ctrl: vec![],
-                        };
-
-                        let _ = framed.send(msg).await.map_err(|e| {
-                            eprintln!("Unable to send bind -> {:?}", e);
-                        })?;
+        if let Some(Ok(msg)) = framed.next().await {
+            if let LdapOp::BindResponse(res) = msg.op {
+                match res.res.code {
+                    LdapResultCode::Success => {
+                        println!("Bind successful");
+                        break Ok(());
                     }
-                    dbg!(res);
-                } else {
-                    panic!("Bind failed: {:?}", res)
+                    LdapResultCode::SaslBindInProgress => {
+                        if let Some(ref cred) = res.saslcreds {
+                            let ntlm_token = ntlm.step(cred).unwrap();
+                            let msg = LdapMsg {
+                                msgid: 2,
+                                op: LdapOp::BindRequest(LdapBindRequest {
+                                    dn: "".to_string(),
+                                    cred: LdapBindCred::SASL(SaslCredentials {
+                                        mechanism: "GSS-SPNEGO".to_string(),
+                                        credentials: ntlm_token,
+                                    }),
+                                }),
+                                ctrl: vec![],
+                            };
+
+                            let _ = framed.send(msg).await?;
+                        }
+                    }
+                    _ => {
+                        panic!("Bind failed: {:?}", res)
+                    }
                 }
             }
         } else {
             panic!("Unable to get bind response")
         }
     }
-
-    print!("Bind successful");
-    Ok(())
 }
 
 struct AuthProvier {
