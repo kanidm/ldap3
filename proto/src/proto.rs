@@ -1945,18 +1945,19 @@ impl TryFrom<Vec<StructureTag>> for LdapBindResponse {
         let (res, tags) = LdapResult::try_from_tag(value)?;
 
         // Now with the remaining tags, as per rfc4511#section-4.2.2, we extract the optional sasl creds. Class Context, id 7. OctetString.
-        let mut saslcreds = None;
-        if let Some(tag) = tags.get(0) {
-            //tag exist and is not empty
-            debug!(?tag);
-            let vec = tag
-                .clone()
-                .match_class(TagClass::Context)
-                .and_then(|t| t.match_id(7))
-                .and_then(|t| t.expect_primitive())
-                .ok_or(LdapProtoError::BindCredBer)?;
-            saslcreds = Some(vec);
-        } // could be no sasl creds here, so we don't error out.
+        let saslcreds = tags
+            .get(0)
+            .map(|tag| {
+                debug!(?tag);
+                let vec = tag
+                    .clone()
+                    .match_class(TagClass::Context)
+                    .and_then(|t| t.match_id(7))
+                    .and_then(|t| t.expect_primitive());
+
+                vec.ok_or(LdapProtoError::BindCredBer)
+            })
+            .transpose()?;
 
         Ok(LdapBindResponse { res, saslcreds })
     }
