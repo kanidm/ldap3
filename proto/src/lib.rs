@@ -92,9 +92,7 @@ impl Decoder for LdapCodec {
             buf.advance(size);
         }
         // Build the LdapMsg from the Tag
-        LdapMsg::try_from(msg)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("ldapmsg invalid: {:?}", e)))
-            .map(Some)
+        LdapMsg::try_from(msg).map_err(io::Error::other).map(Some)
     }
 }
 
