@@ -281,6 +281,8 @@ pub enum LdapBindCred {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename = "snake_case"))]
 pub struct SaslCredentials {
     pub mechanism: String,
     pub credentials: Vec<u8>,
