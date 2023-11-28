@@ -423,13 +423,13 @@ impl<'a> LdapClientBuilder<'a> {
             let (r, w) = tokio::io::split(tlsstream);
             (
                 LdapWriteTransport::Tls(FramedWrite::new(w, LdapCodec::default())),
-                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec::default())),
+                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec::new(Some(32768)))),
             )
         } else {
             let (r, w) = tokio::io::split(tcpstream);
             (
                 LdapWriteTransport::Plain(FramedWrite::new(w, LdapCodec::default())),
-                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec::default())),
+                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec::new(Some(32768)))),
             )
         };
 

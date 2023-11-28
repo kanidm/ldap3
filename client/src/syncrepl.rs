@@ -62,7 +62,7 @@ impl LdapClient {
                 timelimit: 0,
                 typesonly: false,
                 filter,
-                attrs: vec![],
+                attrs: vec!["*".to_string(), "+".to_string()],
             }),
             ctrl: vec![LdapControl::SyncRequest {
                 criticality: true,
@@ -179,10 +179,10 @@ impl LdapClient {
                         error!("Invalid Sync Control encountered");
                         break Err(LdapError::InvalidProtocolState);
                     }
-                },
+                }
                 LdapOp::SearchResultReference(_search_reference) => {
                     // pass
-                },
+                }
                 // Error cases below
                 LdapOp::SearchResultDone(proto::LdapResult {
                     code,

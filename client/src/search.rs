@@ -63,7 +63,7 @@ impl LdapClient {
                 }) => {
                     error!(%message);
                     break Err(LdapError::from(code));
-                },
+                }
                 op => {
                     trace!(?op, "<<<<==== ");
                     break Err(LdapError::InvalidProtocolState);
