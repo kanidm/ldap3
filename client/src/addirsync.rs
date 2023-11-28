@@ -86,10 +86,10 @@ impl LdapClient {
                         // state,
                         entry: entry.into(),
                     })
-                },
+                }
                 LdapOp::SearchResultReference(_search_reference) => {
                     // pass
-                },
+                }
                 // Error cases below
                 LdapOp::SearchResultDone(proto::LdapResult {
                     code,
