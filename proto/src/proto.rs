@@ -395,7 +395,7 @@ impl From<&str> for LdapSubstringFilter {
                     filter.initial = Some(v.to_string())
                 } else if idx == value_count - 1 && last_char != Some('*') {
                     filter.final_ = Some(v.to_string())
-                } else if v == "" {
+                } else if v.is_empty() {
                     // pass
                 } else {
                     filter.any.push(v.to_string())
