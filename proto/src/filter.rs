@@ -12,7 +12,6 @@ peg::parser! {
             not()
             / and()
             / or()
-            // / pres()
             / gte()
             / lte()
             / approx()
