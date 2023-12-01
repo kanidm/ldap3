@@ -386,21 +386,17 @@ impl From<&str> for LdapSubstringFilter {
         let value_count = value.split('*').count();
         let last_char = value.chars().last();
         let first_char = value.chars().next();
-        value
-            .split('*')
-            .enumerate()
-            .into_iter()
-            .for_each(|(idx, v)| {
-                if idx == 0 && first_char != Some('*') {
-                    filter.initial = Some(v.to_string())
-                } else if idx == value_count - 1 && last_char != Some('*') {
-                    filter.final_ = Some(v.to_string())
-                } else if v.is_empty() {
-                    // pass
-                } else {
-                    filter.any.push(v.to_string())
-                }
-            });
+        value.split('*').enumerate().for_each(|(idx, v)| {
+            if idx == 0 && first_char != Some('*') {
+                filter.initial = Some(v.to_string())
+            } else if idx == value_count - 1 && last_char != Some('*') {
+                filter.final_ = Some(v.to_string())
+            } else if v.is_empty() {
+                // pass
+            } else {
+                filter.any.push(v.to_string())
+            }
+        });
 
         filter
     }
