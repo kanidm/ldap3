@@ -372,29 +372,35 @@ pub enum LdapDerefAliases {
 pub struct LdapSubstringFilter {
     pub initial: Option<String>,
     pub any: Vec<String>,
-    pub final_: Option<String>, //escape final feyword
+    pub final_: Option<String>, //escape final keyword
 }
 
-impl From<String> for LdapSubstringFilter {
-    fn from(value: String) -> Self {
+impl From<&str> for LdapSubstringFilter {
+    fn from(value: &str) -> Self {
         let mut filter = LdapSubstringFilter {
             initial: None,
             any: Vec::new(),
             final_: None,
         };
 
-        let parts: Vec<&str> = value.split('*').collect();
-
-        for (i, part) in parts.iter().enumerate() {
-            match i {
-                0 if !part.is_empty() => filter.initial = Some(part.to_string()),
-                _ if i == parts.len() - 1 && !part.is_empty() => {
-                    filter.final_ = Some(part.to_string())
+        let value_count = value.split('*').count();
+        let last_char = value.chars().last();
+        let first_char = value.chars().next();
+        value
+            .split('*')
+            .enumerate()
+            .into_iter()
+            .for_each(|(idx, v)| {
+                if idx == 0 && first_char != Some('*') {
+                    filter.initial = Some(v.to_string())
+                } else if idx == value_count - 1 && last_char != Some('*') {
+                    filter.final_ = Some(v.to_string())
+                } else if v == "" {
+                    // pass
+                } else {
+                    filter.any.push(v.to_string())
                 }
-                _ if !part.is_empty() => filter.any.push(part.to_string()),
-                _ => (),
-            }
-        }
+            });
 
         filter
     }

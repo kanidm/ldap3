@@ -77,7 +77,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let res = framed.next().await.expect("no meg")?;
-        dbg!(&res);
         if let LdapOp::SearchResultDone(..) = &res.op {
             break;
         }
