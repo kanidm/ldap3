@@ -1,6 +1,6 @@
 //! LDAP Filter Parser
 
-use crate::LdapFilter;
+use crate::{proto::LdapSubstringFilter, LdapFilter};
 
 peg::parser! {
     pub(crate) grammar ldapfilter() for str {
@@ -12,7 +12,7 @@ peg::parser! {
             not()
             / and()
             / or()
-            / pres()
+            // / pres()
             / gte()
             / lte()
             / approx()
@@ -27,9 +27,6 @@ peg::parser! {
         rule or() -> LdapFilter =
             separator()* "|" v:(parse()+) { LdapFilter::Or(v) }
 
-        rule pres() -> LdapFilter =
-            a:attr() "=" "*" { LdapFilter::Present(a) }
-
         rule gte() -> LdapFilter =
             a:attr() ">=" v:value() { LdapFilter::GreaterOrEqual(a, v) }
 
@@ -40,13 +37,24 @@ peg::parser! {
             a:attr() "~=" v:value() { LdapFilter::Approx(a, v) }
 
         rule eq() -> LdapFilter =
-            a:attr() "=" v:value() { LdapFilter::Equality(a, v) }
+            a:attr() "=" v:value() {
+                if v == "*"{
+                    LdapFilter::Present(a)
+                }
+                 else if !v.contains('*') {
+                    LdapFilter::Equality(a, v)
+                }else{
+                    let substring_filter :LdapSubstringFilter = v.into();
+                    LdapFilter::Substring(a, substring_filter)
+                }
+            }
+
 
         rule separator()
           = ['\n' | ' ' | '\t' ]
 
         rule operator()
-          = ['=' | '*' | '\n' | ' ' | '\t' | '(' | ')' | '~' | '>' | '<' | '!' | '&' | '|' ]
+          = ['='  | '\n' | ' ' | '\t' | '(' | ')' | '~' | '>' | '<' | '!' | '&' | '|' ]
 
         rule attr() -> String =
             separator()* s:attrdesc() separator()* { s }
@@ -68,6 +76,8 @@ peg::parser! {
         // Per the rfc this also could be an oid with types/options, but lazy for now.
         pub(crate) rule attrdesc() -> String =
             a:descr()
+
+
 
         // descr is:
         //   keystring = leadkeychar *keychar
