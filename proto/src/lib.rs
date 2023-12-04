@@ -109,9 +109,12 @@ impl Encoder<LdapMsg> for LdapCodec {
 
 #[cfg(test)]
 mod tests {
+    use crate::parse_ldap_filter_str;
     use crate::proto::*;
     use crate::LdapCodec;
     use bytes::BytesMut;
+    use lber::common::TagClass;
+    use lber::structures::Tag;
     use std::convert::TryInto;
     use tokio_util::codec::{Decoder, Encoder};
 
@@ -569,5 +572,124 @@ mod tests {
             // 110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115,
         ]);
         assert!(matches!(parse_result, Err(nom::Err::Incomplete(_))));
+    }
+
+    #[test]
+    fn test_parse_wild_card() {
+        let filter = parse_ldap_filter_str("(cn=Info*Tech*Test)").unwrap();
+        let tag: Tag = filter.try_into().expect("filters cannot convert into tags");
+        if let Tag::Sequence(mut sequence) = tag {
+            assert_eq!(sequence.id, 4);
+            assert_eq!(sequence.class, TagClass::Context);
+
+            let mut substring_filter_tags = match sequence.inner.pop().unwrap() {
+                Tag::Sequence(sequence) => sequence,
+                _ => panic!("substring_filter_tags sould be squence"),
+            }
+            .inner;
+            let cn = sequence.inner.pop().unwrap();
+            match cn {
+                Tag::OctetString(string) => {
+                    assert_eq!(string.id, 4);
+                    assert_eq!(string.class, TagClass::Universal);
+                    assert_eq!(string.inner, b"cn".to_vec());
+                }
+                _ => panic!("cn expected to be string"),
+            }
+
+            // Check the final component
+            let final_ = substring_filter_tags
+                .pop()
+                .expect("expecting final component");
+            if let Tag::OctetString(octet_string) = final_ {
+                assert_eq!(octet_string.id, 2);
+                assert_eq!(octet_string.class, TagClass::Context);
+                assert_eq!(octet_string.inner, b"Test".to_vec());
+            } else {
+                panic!("final component test failed")
+            }
+
+            // Check the 'any' component
+            let any = substring_filter_tags
+                .pop()
+                .expect("expecting any component");
+            if let Tag::OctetString(octet_string) = any {
+                assert_eq!(octet_string.id, 1);
+                assert_eq!(octet_string.class, TagClass::Context);
+                assert_eq!(octet_string.inner, b"Tech".to_vec());
+            } else {
+                panic!("any component test failed")
+            }
+
+            // Check the initial component
+            let initial = substring_filter_tags
+                .pop()
+                .expect("expecting initial component");
+            if let Tag::OctetString(octet_string) = initial {
+                assert_eq!(octet_string.id, 0);
+                assert_eq!(octet_string.class, TagClass::Context);
+                assert_eq!(octet_string.inner, b"Info".to_vec());
+            } else {
+                panic!("initial component test failed")
+            }
+        }
+    }
+
+    #[test]
+    pub fn test_substring_filter() {
+        // Test with initial, any, and final
+        let filter: LdapSubstringFilter = "Start*Mid1*Mid2*End".into();
+        assert_eq!(filter.initial, Some("Start".to_string()));
+        assert_eq!(filter.any, vec!["Mid1".to_string(), "Mid2".to_string()]);
+        assert_eq!(filter.final_, Some("End".to_string()));
+
+        let filter: LdapSubstringFilter = "Start*Mid1*End".into();
+        assert_eq!(filter.initial, Some("Start".to_string()));
+        assert_eq!(filter.any, vec!["Mid1".to_string()]);
+        assert_eq!(filter.final_, Some("End".to_string()));
+
+        // Test with only any
+        let filter: LdapSubstringFilter = "*OnlyAny*".into();
+        assert_eq!(filter.initial, None);
+        assert_eq!(filter.any, vec!["OnlyAny".to_string()]);
+        assert_eq!(filter.final_, None);
+
+        let filter: LdapSubstringFilter = "*Mid*End".into();
+        assert_eq!(filter.initial, None);
+        assert_eq!(filter.any, vec!["Mid".to_string()]);
+        assert_eq!(filter.final_, Some("End".to_string()));
+
+        // Test with no final, but has initial
+        let filter: LdapSubstringFilter = "Start*Mid*".into();
+        assert_eq!(filter.initial, Some("Start".to_string()));
+        assert_eq!(filter.any, vec!["Mid".to_string()]);
+        assert_eq!(filter.final_, None);
+
+        // Test with one initial and one final
+        let filter: LdapSubstringFilter = "Start*End".into();
+        assert_eq!(filter.initial, Some("Start".to_string()));
+        assert_eq!(filter.any, Vec::<String>::new());
+        assert_eq!(filter.final_, Some("End".to_string()));
+    }
+
+    #[test]
+    pub fn test_present_filter() {
+        let filter = parse_ldap_filter_str("(cn=*)").unwrap();
+        if let LdapFilter::Present(p) = filter {
+            assert_eq!(p, "cn")
+        } else {
+            panic!("present search filter broken");
+        }
+    }
+
+    #[test]
+    pub fn test_equality_filter() {
+        let filter = parse_ldap_filter_str("(cn=test)").unwrap();
+        if let LdapFilter::Equality(name, value) = filter {
+            assert_eq!(name, "cn");
+            assert_eq!(value, "test")
+        } else {
+            panic!("present search filter broken");
+        }
     }
 }

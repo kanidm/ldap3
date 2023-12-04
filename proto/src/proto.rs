@@ -372,7 +372,40 @@ pub enum LdapDerefAliases {
 pub struct LdapSubstringFilter {
     pub initial: Option<String>,
     pub any: Vec<String>,
-    pub final_: Option<String>,
+    pub final_: Option<String>, //escape final keyword
+}
+
+impl From<&str> for LdapSubstringFilter {
+    fn from(value: &str) -> Self {
+        let mut filter = LdapSubstringFilter {
+            initial: None,
+            any: Vec::new(),
+            final_: None,
+        };
+
+        let mut split_iter = value.split('*');
+        if let Some(start) = split_iter.next() {
+            if !start.is_empty() {
+                filter.initial = Some(start.to_string());
+            }
+        }
+
+        if let Some(end) = split_iter.next_back() {
+            if !end.is_empty() {
+                filter.final_ = Some(end.to_string());
+            }
+        }
+
+        split_iter.for_each(|v| filter.any.push(v.to_string()));
+
+        filter
+    }
+}
+
+impl From<String> for LdapSubstringFilter {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Hash, Eq, PartialOrd, Ord)]
@@ -2429,31 +2462,34 @@ impl From<LdapFilter> for Tag {
                         ..Default::default()
                     }),
                     Tag::Sequence(Sequence {
-                        inner: f
-                            .initial
-                            .into_iter()
-                            .map(|s| {
-                                Tag::OctetString(OctetString {
-                                    inner: Vec::from(s),
+                        inner: {
+                            let mut res = vec![];
+                            if f.initial.is_some() {
+                                res.push(Tag::OctetString(OctetString {
                                     id: 0,
-                                    ..Default::default()
-                                })
-                            })
-                            .chain(f.any.into_iter().map(|s| {
-                                Tag::OctetString(OctetString {
-                                    inner: Vec::from(s),
+                                    inner: f.initial.unwrap().as_bytes().to_vec(),
+                                    class: TagClass::Context,
+                                }))
+                            }
+
+                            f.any.iter().for_each(|v| {
+                                res.push(Tag::OctetString(OctetString {
                                     id: 1,
-                                    ..Default::default()
-                                })
-                            }))
-                            .chain(f.final_.into_iter().map(|s| {
-                                Tag::OctetString(OctetString {
-                                    inner: Vec::from(s),
+                                    inner: v.as_bytes().to_vec(),
+                                    class: TagClass::Context,
+                                }))
+                            });
+
+                            if f.final_.is_some() {
+                                res.push(Tag::OctetString(OctetString {
                                     id: 2,
-                                    ..Default::default()
-                                })
-                            }))
-                            .collect(),
+                                    inner: f.final_.unwrap().as_bytes().to_vec(),
+                                    class: TagClass::Context,
+                                }))
+                            }
+
+                            res
+                        },
                         ..Default::default()
                     }),
                 ],
