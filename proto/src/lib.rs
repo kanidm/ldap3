@@ -638,35 +638,35 @@ mod tests {
     #[test]
     pub fn test_substring_filter() {
         // Test with initial, any, and final
-        let filter: LdapSubstringFilter = "Start*Mid1*Mid2*End".to_string().as_str().into();
+        let filter: LdapSubstringFilter = "Start*Mid1*Mid2*End".into();
         assert_eq!(filter.initial, Some("Start".to_string()));
         assert_eq!(filter.any, vec!["Mid1".to_string(), "Mid2".to_string()]);
         assert_eq!(filter.final_, Some("End".to_string()));
 
-        let filter: LdapSubstringFilter = "Start*Mid1*End".to_string().as_str().into();
+        let filter: LdapSubstringFilter = "Start*Mid1*End".into();
         assert_eq!(filter.initial, Some("Start".to_string()));
         assert_eq!(filter.any, vec!["Mid1".to_string()]);
         assert_eq!(filter.final_, Some("End".to_string()));
 
         // Test with only any
-        let filter: LdapSubstringFilter = "*OnlyAny*".to_string().as_str().into();
+        let filter: LdapSubstringFilter = "*OnlyAny*".into();
         assert_eq!(filter.initial, None);
         assert_eq!(filter.any, vec!["OnlyAny".to_string()]);
         assert_eq!(filter.final_, None);
 
-        let filter: LdapSubstringFilter = "*Mid*End".to_string().as_str().into();
+        let filter: LdapSubstringFilter = "*Mid*End".into();
         assert_eq!(filter.initial, None);
         assert_eq!(filter.any, vec!["Mid".to_string()]);
         assert_eq!(filter.final_, Some("End".to_string()));
 
         // Test with no final, but has initial
-        let filter: LdapSubstringFilter = "Start*Mid*".to_string().as_str().into();
+        let filter: LdapSubstringFilter = "Start*Mid*".into();
         assert_eq!(filter.initial, Some("Start".to_string()));
         assert_eq!(filter.any, vec!["Mid".to_string()]);
         assert_eq!(filter.final_, None);
 
         // Test with one initial and one final
-        let filter: LdapSubstringFilter = "Start*End".to_string().as_str().into();
+        let filter: LdapSubstringFilter = "Start*End".into();
         assert_eq!(filter.initial, Some("Start".to_string()));
         assert_eq!(filter.any, Vec::<String>::new());
         assert_eq!(filter.final_, Some("End".to_string()));

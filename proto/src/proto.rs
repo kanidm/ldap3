@@ -383,22 +383,28 @@ impl From<&str> for LdapSubstringFilter {
             final_: None,
         };
 
-        let value_count = value.split('*').count();
-        let last_char = value.chars().last();
-        let first_char = value.chars().next();
-        value.split('*').enumerate().for_each(|(idx, v)| {
-            if idx == 0 && first_char != Some('*') {
-                filter.initial = Some(v.to_string())
-            } else if idx == value_count - 1 && last_char != Some('*') {
-                filter.final_ = Some(v.to_string())
-            } else if v.is_empty() {
-                // pass
-            } else {
-                filter.any.push(v.to_string())
+        let mut split_iter = value.split('*');
+        if let Some(start) = split_iter.next() {
+            if !start.is_empty() {
+                filter.initial = Some(start.to_string());
             }
-        });
+        }
+
+        if let Some(end) = split_iter.next_back() {
+            if !end.is_empty() {
+                filter.final_ = Some(end.to_string());
+            }
+        }
+
+        split_iter.for_each(|v| filter.any.push(v.to_string()));
 
         filter
+    }
+}
+
+impl From<String> for LdapSubstringFilter {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
     }
 }
 
