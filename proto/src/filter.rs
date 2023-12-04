@@ -43,7 +43,7 @@ peg::parser! {
                  else if !v.contains('*') {
                     LdapFilter::Equality(a, v)
                 }else{
-                    let substring_filter :LdapSubstringFilter = v.as_str().into();
+                    let substring_filter :LdapSubstringFilter = v.into();
                     LdapFilter::Substring(a, substring_filter)
                 }
             }
