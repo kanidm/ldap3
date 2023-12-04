@@ -8,7 +8,7 @@ use ldap3_proto::{
 };
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
-use tracing::Level;
+use tracing::{info, Level};
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,7 +42,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let LdapOp::BindResponse(res) = msg.op {
                 match res.res.code {
                     LdapResultCode::Success => {
-                        println!("Bind successful");
+                        info!("Bind successful");
                         break;
                     }
                     _ => {
@@ -78,6 +78,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let res = framed.next().await.expect("no meg")?;
         if let LdapOp::SearchResultDone(..) = &res.op {
+            info!("search sucessfull");
             break;
         }
     }
