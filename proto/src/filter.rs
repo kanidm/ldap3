@@ -1,6 +1,9 @@
 //! LDAP Filter Parser
 
-use crate::{proto::LdapSubstringFilter, LdapFilter};
+use crate::{
+    proto::{LdapMatchingRuleAssertion, LdapSubstringFilter},
+    LdapFilter,
+};
 
 peg::parser! {
     pub(crate) grammar ldapfilter() for str {
@@ -15,6 +18,7 @@ peg::parser! {
             / gte()
             / lte()
             / approx()
+            / extend()
             / eq()
 
         rule not() -> LdapFilter =
@@ -35,6 +39,12 @@ peg::parser! {
         rule approx() -> LdapFilter =
             a:attr() "~=" v:value() { LdapFilter::Approx(a, v) }
 
+        rule extend() -> LdapFilter =
+            a:extend_filter() ":=" v:value() {
+                let extensible = LdapMatchingRuleAssertion::from_strings(a, v);
+                LdapFilter::Extensible(extensible)
+            }
+
         rule eq() -> LdapFilter =
             a:attr() "=" v:value() {
                 if v == "*"{
@@ -53,7 +63,7 @@ peg::parser! {
           = ['\n' | ' ' | '\t' ]
 
         rule operator()
-          = ['='  | '\n' | ' ' | '\t' | '(' | ')' | '~' | '>' | '<' | '!' | '&' | '|' ]
+          = ['='  | '\n' | ' ' | '\t' | '(' | ')' | '~' | '>' | '<' | '!' | '&' | '|'  ]
 
         rule attr() -> String =
             separator()* s:attrdesc() separator()* { s }
@@ -76,14 +86,25 @@ peg::parser! {
         pub(crate) rule attrdesc() -> String =
             a:descr()
 
+        rule oid() -> String =
+            s:$([':'][ '0'..='9' | '.' | 'a'..='z' | 'A'..='Z' ]+) { s.to_string() }
 
+        rule dn() -> String =
+            ":dn" { ":dn".to_string() }
+
+        rule type_() -> String =
+            s:$([ 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' ]+) { s.to_string() }
+
+        rule extend_filter() -> String =
+              t:type_() d:dn()? o:oid()? { format!("{}{}{}", t,d.unwrap_or_default(), o.unwrap_or_default()) }
+            / t:type_()? d:dn()? o:oid() { format!("{}{}{}", t.unwrap_or_default(),d.unwrap_or_default(), o) }
 
         // descr is:
         //   keystring = leadkeychar *keychar
         //   leadkeychar = ALPHA
         //   keychar = ALPHA / DIGIT / HYPHEN
         rule descr() -> String =
-            s:$([ 'a'..='z' | 'A'..='Z']['a'..='z' | 'A'..='Z' | '0'..='9' | '-' ]*) { s.to_string() }
+            s:$([ 'a'..='z' | 'A'..='Z']['a'..='z' | 'A'..='Z' | '0'..='9' | '-' ]* ) { s.to_string() }
     }
 }
 
@@ -216,5 +237,90 @@ mod test {
                 ]),
             ])
         );
+    }
+
+    #[test]
+    fn test_extensible_filter1() {
+        let f1 = parse_ldap_filter_str("(userAccountControl:1.2.840.113556.1.4.803:=2)")
+            .expect("Failed to parse filter");
+
+        assert!(
+            f1 == LdapFilter::Extensible(crate::proto::LdapMatchingRuleAssertion {
+                matching_rule: Some("1.2.840.113556.1.4.803".to_string()),
+                type_: Some("userAccountControl".to_string()),
+                match_value: "2".to_string(),
+                dn_attributes: false,
+            })
+        );
+    }
+
+    #[test]
+    fn test_extensible_filter2() {
+        let f2 = parse_ldap_filter_str("(cn:dn:1.2.3.4:=Fred_Flintstone)")
+            .expect("Failed to parse filter");
+
+        assert!(
+            f2 == LdapFilter::Extensible(crate::proto::LdapMatchingRuleAssertion {
+                matching_rule: Some("1.2.3.4".to_string()),
+                type_: Some("cn".to_string()),
+                match_value: "Fred_Flintstone".to_string(),
+                dn_attributes: true,
+            })
+        );
+    }
+
+    #[test]
+    fn test_extensible_filter3() {
+        let f3 = parse_ldap_filter_str("(cn:=Betty_Rubble)").expect("Failed to parse filter");
+
+        assert!(
+            f3 == LdapFilter::Extensible(crate::proto::LdapMatchingRuleAssertion {
+                matching_rule: None,
+                type_: Some("cn".to_string()),
+                match_value: "Betty_Rubble".to_string(),
+                dn_attributes: false,
+            })
+        );
+    }
+
+    #[test]
+    fn test_extensible_filter4() {
+        let f4 = parse_ldap_filter_str("(sn:dn:=John)").expect("Failed to parse filter");
+
+        assert!(
+            f4 == LdapFilter::Extensible(crate::proto::LdapMatchingRuleAssertion {
+                matching_rule: None,
+                type_: Some("sn".to_string()),
+                match_value: "John".to_string(),
+                dn_attributes: true,
+            })
+        );
+    }
+
+    #[test]
+    fn test_extensible_filter5() {
+        let f5 = parse_ldap_filter_str("(:caseExactMatch:=Dino)").expect("Failed to parse filter");
+
+        assert!(
+            f5 == LdapFilter::Extensible(crate::proto::LdapMatchingRuleAssertion {
+                matching_rule: Some("caseExactMatch".to_string()),
+                type_: None,
+                match_value: "Dino".to_string(),
+                dn_attributes: false,
+            })
+        );
+    }
+
+    #[test]
+    fn test_extensible_filter6() {
+        let f6 = parse_ldap_filter_str("(:dn:2.5.13.5:=John)").expect("Failed to parse filter");
+        assert!(
+            f6 == LdapFilter::Extensible(crate::proto::LdapMatchingRuleAssertion {
+                matching_rule: Some("2.5.13.5".to_string()),
+                type_: None,
+                match_value: "John".to_string(),
+                dn_attributes: true,
+            })
+        )
     }
 }

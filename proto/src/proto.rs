@@ -12,6 +12,7 @@ use lber::parse::Parser;
 use bytes::BytesMut;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fmt;
 use uuid::Uuid;
 
@@ -416,6 +417,34 @@ pub struct LdapMatchingRuleAssertion {
     pub type_: Option<String>,
     pub match_value: String,
     pub dn_attributes: bool, // DEFAULT FALSE
+}
+
+impl LdapMatchingRuleAssertion {
+    pub fn from_strings(left: String, right: String) -> Self {
+        let match_value = right.to_string();
+        let mut split = left.split(':').collect::<VecDeque<_>>();
+        let dn_attribute = split.contains(&"dn");
+        split.retain(|s| *s != "dn");
+        let first = split.pop_front().unwrap();
+        dbg!(first);
+        if first.is_empty() {
+            // :caseExactMatch:=foo
+            return Self {
+                matching_rule: split.pop_front().map(|s| s.to_string()),
+                type_: None,
+                match_value,
+                dn_attributes: dn_attribute,
+            };
+        }
+
+        // foo:caseExactMatch:=bar
+        Self {
+            matching_rule: split.pop_back().map(|s| s.to_string()),
+            type_: Some(first.to_string()),
+            match_value,
+            dn_attributes: dn_attribute,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
@@ -2544,38 +2573,47 @@ impl From<LdapFilter> for Tag {
             LdapFilter::Extensible(f) => Tag::Sequence(Sequence {
                 id: 9,
                 class: TagClass::Context,
-                inner: f
-                    .matching_rule
-                    .into_iter()
-                    .map(|v| {
-                        Tag::OctetString(OctetString {
+                inner: {
+                    let mut res = vec![];
+                    let LdapMatchingRuleAssertion {
+                        matching_rule,
+                        type_,
+                        match_value,
+                        dn_attributes,
+                    } = f;
+
+                    match matching_rule {
+                        Some(v) => res.push(Tag::OctetString(OctetString {
                             inner: Vec::from(v),
                             id: 1,
                             class: TagClass::Context,
-                        })
-                    })
-                    .chain(f.type_.into_iter().map(|v| {
-                        Tag::OctetString(OctetString {
+                        })),
+                        None => {}
+                    }
+
+                    match type_ {
+                        Some(v) => res.push(Tag::OctetString(OctetString {
                             inner: Vec::from(v),
                             id: 2,
                             class: TagClass::Context,
-                        })
-                    }))
-                    .chain(once({
-                        Tag::OctetString(OctetString {
-                            inner: Vec::from(f.match_value),
-                            id: 3,
-                            class: TagClass::Context,
-                        })
-                    }))
-                    .chain(once({
-                        Tag::Boolean(Boolean {
-                            inner: f.dn_attributes,
-                            id: 4,
-                            class: TagClass::Context,
-                        })
-                    }))
-                    .collect(),
+                        })),
+                        None => {}
+                    }
+
+                    res.push(Tag::OctetString(OctetString {
+                        inner: Vec::from(match_value),
+                        id: 3,
+                        class: TagClass::Context,
+                    }));
+
+                    res.push(Tag::Boolean(Boolean {
+                        inner: dn_attributes,
+                        id: 4,
+                        class: TagClass::Context,
+                    }));
+
+                    res
+                },
             }),
         }
     }
