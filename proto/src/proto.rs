@@ -426,7 +426,6 @@ impl LdapMatchingRuleAssertion {
         let dn_attribute = split.contains(&"dn");
         split.retain(|s| *s != "dn");
         let first = split.pop_front().unwrap();
-        dbg!(first);
         if first.is_empty() {
             // :caseExactMatch:=foo
             return Self {
