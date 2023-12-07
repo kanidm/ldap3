@@ -66,8 +66,8 @@ pub enum LdapControl {
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct ServerSortResult {
-    result_code: ServerSortResultCode,
-    attribute_type: Option<String>,
+    pub result_code: ServerSortResultCode,
+    pub attribute_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord, num_enum::TryFromPrimitive)]
