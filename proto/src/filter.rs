@@ -300,7 +300,6 @@ mod test {
     #[test]
     fn test_extensible_filter5() {
         let f5 = parse_ldap_filter_str("(:caseExactMatch:=Dino)").expect("Failed to parse filter");
-        dbg!(&f5);
         assert!(
             f5 == LdapFilter::Extensible(crate::proto::LdapMatchingRuleAssertion {
                 matching_rule: Some("caseExactMatch".to_string()),
