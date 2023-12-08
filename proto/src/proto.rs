@@ -421,7 +421,7 @@ pub struct LdapMatchingRuleAssertion {
 
 impl LdapMatchingRuleAssertion {
     pub fn from_strings(left: String, right: String) -> Self {
-        let match_value = right.to_string();
+        let match_value = right;
         let mut split = left.split(':').collect::<VecDeque<_>>();
         let dn_attribute = split.contains(&"dn");
         split.retain(|s| *s != "dn");
