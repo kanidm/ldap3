@@ -2581,22 +2581,20 @@ impl From<LdapFilter> for Tag {
                         dn_attributes,
                     } = f;
 
-                    match matching_rule {
-                        Some(v) => res.push(Tag::OctetString(OctetString {
+                    if let Some(v) = matching_rule {
+                        res.push(Tag::OctetString(OctetString {
                             inner: Vec::from(v),
                             id: 1,
                             class: TagClass::Context,
-                        })),
-                        None => {}
+                        }))
                     }
 
-                    match type_ {
-                        Some(v) => res.push(Tag::OctetString(OctetString {
+                    if let Some(v) = type_ {
+                        res.push(Tag::OctetString(OctetString {
                             inner: Vec::from(v),
                             id: 2,
                             class: TagClass::Context,
-                        })),
-                        None => {}
+                        }))
                     }
 
                     res.push(Tag::OctetString(OctetString {
