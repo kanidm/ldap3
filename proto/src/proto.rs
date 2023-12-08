@@ -12,7 +12,6 @@ use lber::parse::Parser;
 use bytes::BytesMut;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use std::fmt;
 use uuid::Uuid;
 
@@ -421,27 +420,33 @@ pub struct LdapMatchingRuleAssertion {
 
 impl LdapMatchingRuleAssertion {
     pub fn from_strings(left: String, right: String) -> Self {
-        let match_value = right;
-        let mut split = left.split(':').collect::<VecDeque<_>>();
-        let dn_attribute = split.contains(&"dn");
-        split.retain(|s| *s != "dn");
-        let first = split.pop_front().unwrap();
-        if first.is_empty() {
-            // :caseExactMatch:=foo
-            return Self {
-                matching_rule: split.pop_front().map(|s| s.to_string()),
-                type_: None,
-                match_value,
-                dn_attributes: dn_attribute,
-            };
-        }
+        let mut split = left.split(':');
 
-        // foo:caseExactMatch:=bar
+        let type_ = split.next().and_then(|first| {
+            if first.is_empty() {
+                None
+            } else {
+                Some(first.to_string())
+            }
+        });
+
+        let (matching_rule, dn_attributes) = split
+            .next()
+            .map(|part| match part {
+                "dn" => (None, true),
+                _ => (Some(part.to_string()), false),
+            })
+            .unwrap_or((None, false));
+
+        let matching_rule = split
+            .next()
+            .map_or(matching_rule, |oid| Some(oid.to_string()));
+
         Self {
-            matching_rule: split.pop_back().map(|s| s.to_string()),
-            type_: Some(first.to_string()),
-            match_value,
-            dn_attributes: dn_attribute,
+            matching_rule,
+            type_,
+            match_value: right,
+            dn_attributes,
         }
     }
 }
