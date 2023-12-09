@@ -1,6 +1,7 @@
 use crate::LdapClient;
 use crate::*;
 use base64urlsafedata::Base64UrlSafeData;
+use ldap3_proto::control::LdapControl;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]

@@ -15,6 +15,7 @@
 #[macro_use]
 extern crate tracing;
 
+pub mod control;
 pub mod error;
 pub mod filter;
 pub mod proto;
@@ -109,6 +110,7 @@ impl Encoder<LdapMsg> for LdapCodec {
 
 #[cfg(test)]
 mod tests {
+    use crate::control::LdapControl;
     use crate::parse_ldap_filter_str;
     use crate::proto::*;
     use crate::LdapCodec;
