@@ -36,7 +36,7 @@ async fn main() {
             );
             std::process::exit(e as i32);
         } else {
-            let pw = match rpassword::prompt_password(&format!("Enter password for {}: ", dn)) {
+            let pw = match rpassword::prompt_password(format!("Enter password for {}: ", dn)) {
                 Ok(p) => p,
                 Err(e) => {
                     error!("Failed to get bind password - {}", e);
@@ -192,7 +192,7 @@ async fn main() {
             let mode = proto::SyncRequestMode::RefreshOnly;
 
             let cookie = if let Some(cookie) = cookie {
-                match general_purpose::URL_SAFE.decode(&cookie) {
+                match general_purpose::URL_SAFE.decode(cookie) {
                     Ok(c) => Some(c),
                     Err(e) => {
                         error!(?e, "Failed to parse cookie");
@@ -272,7 +272,7 @@ async fn main() {
         }
         LdapAction::AdDirsync { basedn, cookie } => {
             let cookie = if let Some(cookie) = cookie {
-                match general_purpose::URL_SAFE.decode(&cookie) {
+                match general_purpose::URL_SAFE.decode(cookie) {
                     Ok(c) => Some(c),
                     Err(e) => {
                         error!(?e, "Failed to parse cookie");
