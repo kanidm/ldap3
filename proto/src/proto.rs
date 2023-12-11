@@ -1874,10 +1874,10 @@ impl From<LdapFilter> for Tag {
                     Tag::Sequence(Sequence {
                         inner: {
                             let mut res = vec![];
-                            if f.initial.is_some() {
+                            if let Some(inner) = f.initial {
                                 res.push(Tag::OctetString(OctetString {
                                     id: 0,
-                                    inner: f.initial.unwrap().as_bytes().to_vec(),
+                                    inner: inner.as_bytes().to_vec(),
                                     class: TagClass::Context,
                                 }))
                             }
@@ -1890,10 +1890,10 @@ impl From<LdapFilter> for Tag {
                                 }))
                             });
 
-                            if f.final_.is_some() {
+                            if let Some(inner) = f.final_ {
                                 res.push(Tag::OctetString(OctetString {
                                     id: 2,
-                                    inner: f.final_.unwrap().as_bytes().to_vec(),
+                                    inner: inner.as_bytes().to_vec(),
                                     class: TagClass::Context,
                                 }))
                             }
