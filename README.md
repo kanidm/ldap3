@@ -29,7 +29,7 @@ This is a thin wrapper over the async client for minimal usage and testing.
 
 | name | from rfc | implemented? |
 | ---- | -------- | ------------ |
-| bind | rfc4511  | ✅ (only simple bind will be supported) |
+| bind | rfc4511  | ✅ (Support Both Simple and SASL bind (Security Providers Not included), see below) |
 | unbind | rfc4511 | ✅ |
 | search | rfc4511 | ✅ |
 | filter | rfc4511 | ✅ |
@@ -49,10 +49,12 @@ This is a thin wrapper over the async client for minimal usage and testing.
 StartTLS has a number of security issues compared to LDAPS, and should *not* be used, or developed
 as it is not only more complex, but also worse than LDAPS. Use LDAPS.
 
-SASL is extremely complicated, and there are very few clients that require it over simple bind. It's
-not really worth the time to add it. If it is contributed, I will only accept SASL as an
-authentication mechanism - I won't accept the SASL transport encryption layer, as it's just
-too complicated. Again, use LDAPS.
+SASL is highly complex, and only a few clients require it over a simple bind.
+Our support is limited to the SASL binding authentication interface, 
+for which an example is available under the './proto' crate.
+Users are free to choose any security provider they prefer. 
+However, we do not support the SASL transport encryption layer or any implementations of security providers,
+as these are overly complicated and do not align with our crate's objectives. If encryption is a necessity, we recommend using LDAPS instead.
 
 ## Notes:
 
