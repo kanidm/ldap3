@@ -26,7 +26,6 @@ tracing.workspace = true
 uuid.workspace = true
 serde = { workspace = true, optional = true }
 thiserror.workspace = true
-num_enum = "0.7.1"
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
