@@ -419,7 +419,7 @@ pub struct LdapMatchingRuleAssertion {
 }
 
 impl LdapMatchingRuleAssertion {
-    pub fn from_strings(left: String, right: String) -> Self {
+    pub(crate) fn from_strings(left: &str, right: String) -> Self {
         let mut split = left.split(':');
 
         let type_ = split.next().and_then(|first| {

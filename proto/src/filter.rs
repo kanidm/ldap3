@@ -41,7 +41,7 @@ peg::parser! {
 
         rule extend() -> LdapFilter =
             a:extend_filter() ":=" v:value() {
-                let extensible = LdapMatchingRuleAssertion::from_strings(a, v);
+                let extensible = LdapMatchingRuleAssertion::from_strings(&a, v);
                 LdapFilter::Extensible(extensible)
             }
 
