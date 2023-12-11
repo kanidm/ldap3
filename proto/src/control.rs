@@ -88,10 +88,10 @@ pub enum ServerSortResultCode {
     Other = 80,
 }
 
-impl TryFrom<u8> for ServerSortResultCode {
+impl TryFrom<&u8> for ServerSortResultCode {
     type Error = LdapProtoError;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+    fn try_from(value: &u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(ServerSortResultCode::Success),
             1 => Ok(ServerSortResultCode::OperationsError),
