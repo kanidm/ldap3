@@ -320,6 +320,39 @@ pub struct LdapMatchingRuleAssertion {
     pub dn_attributes: bool, // DEFAULT FALSE
 }
 
+impl LdapMatchingRuleAssertion {
+    pub(crate) fn from_strings(left: &str, right: String) -> Self {
+        let mut split = left.split(':');
+
+        let type_ = split.next().and_then(|first| {
+            if first.is_empty() {
+                None
+            } else {
+                Some(first.to_string())
+            }
+        });
+
+        let (matching_rule, dn_attributes) = split
+            .next()
+            .map(|part| match part {
+                "dn" => (None, true),
+                _ => (Some(part.to_string()), false),
+            })
+            .unwrap_or((None, false));
+
+        let matching_rule = split
+            .next()
+            .map_or(matching_rule, |oid| Some(oid.to_string()));
+
+        Self {
+            matching_rule,
+            type_,
+            match_value: right,
+            dn_attributes,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -1954,38 +1987,45 @@ impl From<LdapFilter> for Tag {
             LdapFilter::Extensible(f) => Tag::Sequence(Sequence {
                 id: 9,
                 class: TagClass::Context,
-                inner: f
-                    .matching_rule
-                    .into_iter()
-                    .map(|v| {
-                        Tag::OctetString(OctetString {
+                inner: {
+                    let mut res = vec![];
+                    let LdapMatchingRuleAssertion {
+                        matching_rule,
+                        type_,
+                        match_value,
+                        dn_attributes,
+                    } = f;
+
+                    if let Some(v) = matching_rule {
+                        res.push(Tag::OctetString(OctetString {
                             inner: Vec::from(v),
                             id: 1,
                             class: TagClass::Context,
-                        })
-                    })
-                    .chain(f.type_.into_iter().map(|v| {
-                        Tag::OctetString(OctetString {
+                        }))
+                    }
+
+                    if let Some(v) = type_ {
+                        res.push(Tag::OctetString(OctetString {
                             inner: Vec::from(v),
                             id: 2,
                             class: TagClass::Context,
-                        })
-                    }))
-                    .chain(once({
-                        Tag::OctetString(OctetString {
-                            inner: Vec::from(f.match_value),
-                            id: 3,
-                            class: TagClass::Context,
-                        })
-                    }))
-                    .chain(once({
-                        Tag::Boolean(Boolean {
-                            inner: f.dn_attributes,
-                            id: 4,
-                            class: TagClass::Context,
-                        })
-                    }))
-                    .collect(),
+                        }))
+                    }
+
+                    res.push(Tag::OctetString(OctetString {
+                        inner: Vec::from(match_value),
+                        id: 3,
+                        class: TagClass::Context,
+                    }));
+
+                    res.push(Tag::Boolean(Boolean {
+                        inner: dn_attributes,
+                        id: 4,
+                        class: TagClass::Context,
+                    }));
+
+                    res
+                },
             }),
         }
     }
