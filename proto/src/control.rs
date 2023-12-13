@@ -18,7 +18,7 @@ use crate::{
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq,Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapControl {
