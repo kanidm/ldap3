@@ -13,12 +13,12 @@ use uuid::Uuid;
 use crate::{
     bytes_to_string,
     error::LdapProtoError,
-    proto::{ber_bool_to_bool, ber_integer_to_i64, SyncRequestMode, SyncStateValue},
+    proto::{ber_bool_to_bool, ber_integer_to_i64, SyncRequestMode, SyncStateValue}, LdapResultCode,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq,Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum LdapControl {
@@ -62,51 +62,12 @@ pub enum LdapControl {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq,Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct ServerSortResult {
-    pub result_code: ServerSortResultCode,
+    pub result_code: LdapResultCode,
     pub attribute_type: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[repr(u8)]
-pub enum ServerSortResultCode {
-    Success = 0,
-    OperationsError = 1,
-    TimeLimitExceeded = 3,
-    StrongAuthRequired = 8,
-    AdminLimitExceeded = 11,
-    NoSuchAttribute = 16,
-    InappropriateMatching = 18,
-    InsufficientAccessRights = 50,
-    Busy = 51,
-    UnwillingToPerform = 53,
-    Other = 80,
-}
-
-impl TryFrom<&u8> for ServerSortResultCode {
-    type Error = LdapProtoError;
-
-    fn try_from(value: &u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(ServerSortResultCode::Success),
-            1 => Ok(ServerSortResultCode::OperationsError),
-            3 => Ok(ServerSortResultCode::TimeLimitExceeded),
-            8 => Ok(ServerSortResultCode::StrongAuthRequired),
-            11 => Ok(ServerSortResultCode::AdminLimitExceeded),
-            16 => Ok(ServerSortResultCode::NoSuchAttribute),
-            18 => Ok(ServerSortResultCode::InappropriateMatching),
-            50 => Ok(ServerSortResultCode::InsufficientAccessRights),
-            51 => Ok(ServerSortResultCode::Busy),
-            53 => Ok(ServerSortResultCode::UnwillingToPerform),
-            80 => Ok(ServerSortResultCode::Other),
-            _ => Err(LdapProtoError::ControlBer),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
@@ -521,7 +482,7 @@ impl TryFrom<StructureTag> for LdapControl {
 
                 Ok(LdapControl::ServerSortResult {
                     sort_result: ServerSortResult {
-                        result_code: code.try_into()?,
+                        result_code: (*code as i64).try_into()?,
                         attribute_type: None, // TODO!
                     },
                 })
