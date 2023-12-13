@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     bytes_to_string,
     error::LdapProtoError,
-    proto::{ber_bool_to_bool, ber_integer_to_i64, SyncRequestMode, SyncStateValue},
+    proto::{ber_bool_to_bool, ber_integer_to_i64, SyncRequestMode, SyncStateValue}, LdapResultCode,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -52,6 +52,31 @@ pub enum LdapControl {
     ManageDsaIT {
         criticality: bool,
     },
+    //1.2.840.113556.1.4.473
+    ServerSort {
+        sort_requests: Vec<ServerSortRequet>,
+    },
+
+    ServerSortResult {
+        sort_result: ServerSortResult,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq,Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+pub struct ServerSortResult {
+    pub result_code: LdapResultCode,
+    pub attribute_type: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+pub struct ServerSortRequet {
+    pub attribute_name: String,
+    pub ordering_rule: Option<String>,
+    pub reverse_order: bool,
 }
 
 impl fmt::Debug for LdapControl {
@@ -115,6 +140,15 @@ impl fmt::Debug for LdapControl {
             LdapControl::ManageDsaIT { criticality } => f
                 .debug_struct("LdapControl::ManageDsaIT")
                 .field("criticality", &criticality)
+                .finish(),
+
+            LdapControl::ServerSort { sort_requests } => f
+                .debug_struct("LdapControl::ServerSort")
+                .field("sort_requests", &sort_requests)
+                .finish(),
+            LdapControl::ServerSortResult { sort_result } => f
+                .debug_struct("LdapControl::ServerSortResult")
+                .field("sort_result", &sort_result)
                 .finish(),
         }
     }
@@ -418,6 +452,41 @@ impl TryFrom<StructureTag> for LdapControl {
 
                 Ok(LdapControl::ManageDsaIT { criticality })
             }
+            "1.2.840.113556.1.4.474" => {
+                let value = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                let mut parser = Parser::new();
+                let (_, tag) = parser
+                    .parse(&value)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
+
+                let mut tags = tag
+                    .match_class(TagClass::Universal)
+                    .and_then(|t| t.match_id(Types::Sequence as u64))
+                    .and_then(|t| t.expect_constructed())
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                let enum_tag = tags.pop().ok_or(LdapProtoError::ControlBer)?;
+
+                let value = enum_tag
+                    .match_class(TagClass::Universal)
+                    .and_then(|t| t.match_id(Types::Enumerated as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                let code = value.first().ok_or(LdapProtoError::ControlBer)?;
+
+                Ok(LdapControl::ServerSortResult {
+                    sort_result: ServerSortResult {
+                        result_code: (*code as i64).try_into()?,
+                        attribute_type: None, // TODO!
+                    },
+                })
+            }
             oid => {
                 warn!(%oid, "Unsupported control oid");
                 Err(LdapProtoError::ControlUnknown)
@@ -579,6 +648,62 @@ impl From<LdapControl> for Tag {
             }
             LdapControl::ManageDsaIT { criticality } => {
                 ("2.16.840.1.113730.3.4.2", criticality, None)
+            }
+            LdapControl::ServerSort { sort_requests } => {
+                let inner: Vec<_> = sort_requests
+                    .into_iter()
+                    .map(|sort_request| {
+                        let mut inner = Vec::with_capacity(3);
+                        inner.push(Tag::OctetString(OctetString {
+                            inner: sort_request.attribute_name.into_bytes(),
+                            ..Default::default()
+                        }));
+                        if let Some(ordering_rule) = sort_request.ordering_rule {
+                            inner.push(Tag::OctetString(OctetString {
+                                inner: ordering_rule.into_bytes(),
+                                class: TagClass::Context,
+                                id: 0,
+                            }));
+                        }
+                        inner.push(Tag::Boolean(Boolean {
+                            inner: sort_request.reverse_order,
+                            class: TagClass::Context,
+                            id: 1,
+                        }));
+                        Tag::Sequence(Sequence {
+                            inner,
+                            ..Default::default()
+                        })
+                    })
+                    .collect();
+                (
+                    "1.2.840.113556.1.4.473",
+                    false,
+                    Some(Tag::Sequence(Sequence {
+                        inner,
+                        ..Default::default()
+                    })),
+                )
+            }
+            LdapControl::ServerSortResult { sort_result } => {
+                let inner = vec![
+                    Tag::Enumerated(Enumerated {
+                        inner: sort_result.result_code as i64,
+                        ..Default::default()
+                    }),
+                    Tag::OctetString(OctetString {
+                        inner: sort_result.attribute_type.unwrap_or_default().into_bytes(),
+                        ..Default::default()
+                    }),
+                ];
+                (
+                    "1.2.840.113556.1.4.474",
+                    false,
+                    Some(Tag::Sequence(Sequence {
+                        inner,
+                        ..Default::default()
+                    })),
+                )
             }
         };
 
