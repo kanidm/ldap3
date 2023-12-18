@@ -1122,7 +1122,7 @@ impl TryFrom<StructureTag> for LdapOp {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::ModifyDNResponse(lr))
             }
             // https://datatracker.ietf.org/doc/html/rfc4511#section-4.1.9
-            (14, PL::C(inner)) => LdapBindResponse::try_from(inner).map(LdapOp::BindResponse),
+            (14, PL::C(inner)) => LdapCompareRequest::try_from(inner).map(LdapOp::CompareRequest),
             (15, PL::C(inner)) => {
                 LdapResult::try_from_tag(inner).map(|(lr, _)| LdapOp::CompareResult(lr))
             }
