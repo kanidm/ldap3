@@ -13,7 +13,8 @@ use uuid::Uuid;
 use crate::{
     bytes_to_string,
     error::LdapProtoError,
-    proto::{ber_bool_to_bool, ber_integer_to_i64, SyncRequestMode, SyncStateValue}, LdapResultCode,
+    proto::{ber_bool_to_bool, ber_integer_to_i64, SyncRequestMode, SyncStateValue},
+    LdapResultCode,
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -56,13 +57,15 @@ pub enum LdapControl {
     ServerSort {
         sort_requests: Vec<ServerSortRequet>,
     },
-
     ServerSortResult {
         sort_result: ServerSortResult,
     },
+    PasswordPolicyRequest {
+        criticality: bool,
+    },
 }
 
-#[derive(Debug, Clone, PartialEq,Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct ServerSortResult {
@@ -149,6 +152,10 @@ impl fmt::Debug for LdapControl {
             LdapControl::ServerSortResult { sort_result } => f
                 .debug_struct("LdapControl::ServerSortResult")
                 .field("sort_result", &sort_result)
+                .finish(),
+            LdapControl::PasswordPolicyRequest { criticality } => f
+                .debug_struct("LdapControl::PasswordPolicyRequest")
+                .field("criticality", &criticality)
                 .finish(),
         }
     }
@@ -487,6 +494,16 @@ impl TryFrom<StructureTag> for LdapControl {
                     },
                 })
             }
+            "1.3.6.1.4.1.42.2.27.8.5.1" => {
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                Ok(LdapControl::PasswordPolicyRequest { criticality })
+            }
             oid => {
                 warn!(%oid, "Unsupported control oid");
                 Err(LdapProtoError::ControlUnknown)
@@ -704,6 +721,9 @@ impl From<LdapControl> for Tag {
                         ..Default::default()
                     })),
                 )
+            }
+            LdapControl::PasswordPolicyRequest { criticality } => {
+                ("1.3.6.1.4.1.42.2.27.8.5.1", criticality, None)
             }
         };
 
