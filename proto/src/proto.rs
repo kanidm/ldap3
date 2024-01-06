@@ -1476,7 +1476,7 @@ impl TryFrom<Vec<StructureTag>> for LdapBindResponse {
 
         // Now with the remaining tags, as per rfc4511#section-4.2.2, we extract the optional sasl creds. Class Context, id 7. OctetString.
         let saslcreds = tags
-            .get(0)
+            .first()
             .map(|tag| {
                 debug!(?tag);
                 let vec = tag

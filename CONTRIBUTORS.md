@@ -1,10 +1,12 @@
+# Contributors
+
 ## Author
 
-* William Brown (Firstyear): william@blackhats.net.au
+* William Brown (Firstyear): <william@blackhats.net.au>
 
-## Contributors
+## Thanks to the contributors
 
+* Hiroyuki Wada (wadahiro)
+* James Hodgkinson (yaleman)
 * Jiegec
 * Nitnelave
-* Hiroyuki Wada (wadahiro)
-

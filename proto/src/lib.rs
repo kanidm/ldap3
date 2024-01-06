@@ -36,9 +36,10 @@ pub use crate::filter::parse_ldap_filter_str;
 pub use crate::simple::*;
 
 const KILOBYTES: usize = 1024;
-const DEFAULT_MAX_BER_SIZE: usize = 8 * KILOBYTES;
+pub const DEFAULT_MAX_BER_SIZE: usize = 32 * KILOBYTES;
 
 pub struct LdapCodec {
+    /// Default is [DEFAULT_MAX_BER_SIZE]
     max_ber_size: usize,
 }
 

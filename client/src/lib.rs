@@ -4,7 +4,6 @@
 #![deny(clippy::unimplemented)]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::panic)]
-#![deny(clippy::unreachable)]
 #![deny(clippy::await_holding_lock)]
 #![deny(clippy::needless_pass_by_value)]
 #![deny(clippy::trivially_copy_pass_by_ref)]
@@ -261,6 +260,8 @@ pub struct LdapClientBuilder<'a> {
     timeout: Duration,
     cas: Vec<&'a Path>,
     verify: bool,
+    /// The maximum LDAP packet size parsed during decoding.
+    max_ber_size: Option<usize>,
 }
 
 impl<'a> LdapClientBuilder<'a> {
@@ -270,12 +271,12 @@ impl<'a> LdapClientBuilder<'a> {
             timeout: Duration::from_secs(30),
             cas: Vec::new(),
             verify: true,
+            max_ber_size: None,
         }
     }
 
-    pub fn set_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
+    pub fn set_timeout(self, timeout: Duration) -> Self {
+        Self { timeout, ..self }
     }
 
     pub fn add_tls_ca<T>(mut self, ca: &'a T) -> Self
@@ -286,9 +287,19 @@ impl<'a> LdapClientBuilder<'a> {
         self
     }
 
-    pub fn danger_accept_invalid_certs(mut self, accept_invalid_certs: bool) -> Self {
-        self.verify = accept_invalid_certs;
-        self
+    pub fn danger_accept_invalid_certs(self, accept_invalid_certs: bool) -> Self {
+        Self {
+            verify: !accept_invalid_certs,
+            ..self
+        }
+    }
+
+    /// Set the maximum size of a decoded message
+    pub fn max_ber_size(self, max_ber_size: Option<usize>) -> Self {
+        Self {
+            max_ber_size,
+            ..self
+        }
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -298,6 +309,7 @@ impl<'a> LdapClientBuilder<'a> {
             timeout,
             cas,
             verify,
+            max_ber_size,
         } = self;
 
         info!(%url);
@@ -363,6 +375,9 @@ impl<'a> LdapClientBuilder<'a> {
             }
         };
 
+        // if they didn't set it in the builder then set it to the default
+        let max_ber_size = max_ber_size.unwrap_or(ldap3_proto::DEFAULT_MAX_BER_SIZE);
+
         // If ldaps - start openssl
         let (write_transport, read_transport) = if need_tls {
             let mut tls_parms = SslConnector::builder(SslMethod::tls_client()).map_err(|e| {
@@ -420,16 +435,17 @@ impl<'a> LdapClientBuilder<'a> {
                 })?;
 
             info!("tls configured");
+
             let (r, w) = tokio::io::split(tlsstream);
             (
                 LdapWriteTransport::Tls(FramedWrite::new(w, LdapCodec::default())),
-                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec::new(Some(32768)))),
+                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec::new(Some(max_ber_size)))),
             )
         } else {
             let (r, w) = tokio::io::split(tcpstream);
             (
                 LdapWriteTransport::Plain(FramedWrite::new(w, LdapCodec::default())),
-                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec::new(Some(32768)))),
+                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec::new(Some(max_ber_size)))),
             )
         };
 
@@ -520,4 +536,16 @@ impl LdapClient {
                 }
             })
     }
+}
+
+#[test]
+fn test_ldapclient_builder() {
+    let url = Url::parse("ldap://ldap.example.com:389").unwrap();
+    let client = LdapClientBuilder::new(&url).max_ber_size(Some(1234567));
+    // .build()
+    // .unwrap();
+    assert_eq!(client.timeout, Duration::from_secs(30));
+    assert_eq!(client.cas.len(), 0);
+    assert_eq!(client.verify, true);
+    assert_eq!(client.max_ber_size, Some(1234567));
 }
