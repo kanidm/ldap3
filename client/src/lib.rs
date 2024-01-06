@@ -538,14 +538,22 @@ impl LdapClient {
     }
 }
 
+/// Doesn't test the actual *build* step because that requires a live LDAP server.
 #[test]
 fn test_ldapclient_builder() {
     let url = Url::parse("ldap://ldap.example.com:389").unwrap();
     let client = LdapClientBuilder::new(&url).max_ber_size(Some(1234567));
-    // .build()
-    // .unwrap();
     assert_eq!(client.timeout, Duration::from_secs(30));
+    let client = client.set_timeout(Duration::from_secs(60));
+    assert_eq!(client.timeout, Duration::from_secs(60));
     assert_eq!(client.cas.len(), 0);
-    assert_eq!(client.verify, true);
     assert_eq!(client.max_ber_size, Some(1234567));
+    assert_eq!(client.verify, true);
+
+    let ca_path = "test.pem".to_string();
+    let client = client.add_tls_ca(&ca_path);
+    assert_eq!(client.cas.len(), 1);
+
+    let badssl_client = client.danger_accept_invalid_certs(true);
+    assert_eq!(badssl_client.verify, false);
 }
