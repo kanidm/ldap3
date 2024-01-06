@@ -104,17 +104,17 @@ impl fmt::Display for LdapError {
                 write!(f, "The LDAP server sent a response we did not expect")
             }
             LdapError::FileIOError => {
-                write!(f, "An error occured while accessing a file")
+                write!(f, "An error occurred while accessing a file")
             }
             LdapError::TransportReadError => {
-                write!(f, "An error occured reading from the transport")
+                write!(f, "An error occurred reading from the transport")
             }
             LdapError::TransportWriteError => {
-                write!(f, "An error occured writing to the transport")
+                write!(f, "An error occurred writing to the transport")
             }
             LdapError::UnavailableCriticalExtension => write!(f, "An extension marked as critical was not available"),
             LdapError::InvalidCredentials => write!(f, "Invalid DN or Password"),
-            LdapError::InsufficentAccessRights => write!(f, "Insufficent Access"),
+            LdapError::InsufficentAccessRights => write!(f, "Insufficient Access"),
             LdapError::UnwillingToPerform => write!(f, "Too many failures, server is unwilling to perform the operation."),
             LdapError::EsyncRefreshRequired => write!(f, "An initial content sync is required. The current cookie should be considered invalid."),
             LdapError::NotImplemented => write!(f, "An error occurred, but we haven't implemented code to handle this error yet.")
@@ -375,7 +375,7 @@ impl<'a> LdapClientBuilder<'a> {
             }
         };
 
-        // if they didn't set it in the builder then set it to the default
+        // If they didn't set it in the builder then set it to the default
         let max_ber_size = max_ber_size.unwrap_or(ldap3_proto::DEFAULT_MAX_BER_SIZE);
 
         // If ldaps - start openssl

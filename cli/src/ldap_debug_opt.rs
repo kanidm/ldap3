@@ -1,4 +1,3 @@
-
 use std::fmt;
 use std::str::FromStr;
 
@@ -39,7 +38,7 @@ struct BerDumpOptions {
 
     #[clap(short, long)]
     /// the path to the dump
-    path: PathBuf
+    path: PathBuf,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -48,16 +47,14 @@ enum LdapDebugAction {
     BerDump(BerDumpOptions),
 }
 
-
 #[derive(Debug, clap::Parser)]
 #[clap(about = "Ldap Debugging Utility")]
 struct LdapDebugOpt {
     #[clap(short, long)]
-    /// Display extended infomation during runtime.
+    /// Display extended information during runtime.
     verbose: bool,
 
     #[clap(subcommand)]
     /// The ldap action to perform
-    action: LdapDebugAction
+    action: LdapDebugAction,
 }
-

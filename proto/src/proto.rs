@@ -2051,7 +2051,7 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchRequest {
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t|
-                // Some non-complient clients will not tag this as enum.
+                // Some non-compliant clients will not tag this as enum.
                 if cfg!(feature = "strict") {
                     t.match_id(Types::Enumerated as u64)
                 } else {
