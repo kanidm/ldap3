@@ -146,7 +146,7 @@ impl LdapClient {
                     done: false,
                 }) => {
                     // These are no-ops that are skipped for our purposes
-                    // They are intended to deliniate the seperate phases, but we actually don't
+                    // They are intended to deliniate the separate phases, but we actually don't
                     // care until we get the search result done.
                     let _d_uuids = delete_uuids.get_or_insert_with(Vec::default);
                 }
@@ -157,7 +157,7 @@ impl LdapClient {
                     },
                 ) => {
                     // These are no-ops that are skipped for our purposes
-                    // They are intended to deliniate the seperate phases, but we actually don't
+                    // They are intended to deliniate the separate phases, but we actually don't
                     // care until we get the search result done.
                     let _p_uuids = present_uuids.get_or_insert_with(Vec::default);
                 }

@@ -93,7 +93,7 @@ pub enum LdapProtoError {
 
     #[error("Intermediate response tag is invalid")]
     IntermediateResponseTag,
-    #[error("Invalid intermediat response id")]
+    #[error("Invalid intermediate response id")]
     IntermediateResponseId,
     #[error("Invalid BER in intermediate response")]
     IntermediateResponseBer,

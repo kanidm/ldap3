@@ -36,9 +36,10 @@ pub use crate::filter::parse_ldap_filter_str;
 pub use crate::simple::*;
 
 const KILOBYTES: usize = 1024;
-const DEFAULT_MAX_BER_SIZE: usize = 8 * KILOBYTES;
+pub const DEFAULT_MAX_BER_SIZE: usize = 32 * KILOBYTES;
 
 pub struct LdapCodec {
+    /// Default is [DEFAULT_MAX_BER_SIZE]
     max_ber_size: usize,
 }
 
@@ -325,7 +326,7 @@ mod tests {
             msgid: 23333,
             op: LdapOp::AddResponse(LdapResult {
                 code: LdapResultCode::Success,
-                matcheddn: "dc=exmaple,dc=com".to_string(),
+                matcheddn: "dc=example,dc=com".to_string(),
                 message: "msg".to_string(),
                 referral: vec![],
             }),
@@ -348,7 +349,7 @@ mod tests {
             msgid: 23333,
             op: LdapOp::DelResponse(LdapResult {
                 code: LdapResultCode::Success,
-                matcheddn: "dc=exmaple,dc=com".to_string(),
+                matcheddn: "dc=example,dc=com".to_string(),
                 message: "msg".to_string(),
                 referral: vec![],
             }),
@@ -486,7 +487,7 @@ mod tests {
         let mrs = LdapPasswordModifyResponse {
             res: LdapResult {
                 code: LdapResultCode::Success,
-                matcheddn: "uid=william,dc=exmaple,dc=com".to_string(),
+                matcheddn: "uid=william,dc=example,dc=com".to_string(),
                 message: "msg".to_string(),
                 referral: vec![],
             },
@@ -586,7 +587,7 @@ mod tests {
 
             let mut substring_filter_tags = match sequence.inner.pop().unwrap() {
                 Tag::Sequence(sequence) => sequence,
-                _ => panic!("substring_filter_tags sould be squence"),
+                _ => panic!("substring_filter_tags should be sequence"),
             }
             .inner;
             let cn = sequence.inner.pop().unwrap();
