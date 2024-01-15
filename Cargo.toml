@@ -28,8 +28,8 @@ futures-util = "^0.3.21"
 lber = "^0.4.0"
 # Must match lber
 nom = "7"
-ldap3_client = { path = "./client", version = "0.4.1" }
-ldap3_proto = { path = "./proto", version = "0.4.1" }
+ldap3_client = { path = "./client", version = "^0.4.3" }
+ldap3_proto = { path = "./proto", version = "^0.4.3" }
 peg = "0.8.1"
 openssl = "^0.10.38"
 ron = "^0.8.0"
