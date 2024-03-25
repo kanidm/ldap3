@@ -205,6 +205,18 @@ pub struct LdapEntry {
 }
 
 impl LdapEntry {
+    pub fn get_ava_single(&self, attr: &str) -> Option<&str> {
+        if let Some(ava) = self.attrs.get(attr) {
+            if ava.len() == 1 {
+                ava.iter().next().map(String::as_ref)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn remove_ava_single(&mut self, attr: &str) -> Option<String> {
         if let Some(ava) = self.attrs.remove(attr) {
             if ava.len() == 1 {
