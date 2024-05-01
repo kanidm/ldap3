@@ -96,7 +96,7 @@ impl LdapClient {
                         refresh_deletes,
                     }) = msg.ctrl.pop()
                     {
-                        let cookie = cookie.map(Base64UrlSafeData);
+                        let cookie = cookie.map(Base64UrlSafeData::from);
                         break Ok(LdapSyncRepl::Success {
                             cookie,
                             refresh_deletes,

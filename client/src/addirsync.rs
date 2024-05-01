@@ -69,7 +69,7 @@ impl LdapClient {
                         cookie,
                     }) = msg.ctrl.pop()
                     {
-                        let cookie = cookie.map(Base64UrlSafeData);
+                        let cookie = cookie.map(Base64UrlSafeData::from);
                         break Ok(LdapSyncRepl {
                             cookie,
                             entries,
