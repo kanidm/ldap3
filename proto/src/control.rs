@@ -63,6 +63,9 @@ pub enum LdapControl {
     PasswordPolicyRequest {
         criticality: bool,
     },
+    Unknown {
+        oid: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
@@ -156,6 +159,10 @@ impl fmt::Debug for LdapControl {
             LdapControl::PasswordPolicyRequest { criticality } => f
                 .debug_struct("LdapControl::PasswordPolicyRequest")
                 .field("criticality", &criticality)
+                .finish(),
+            LdapControl::Unknown { oid } => f
+                .debug_struct("LdapControl::Unknown")
+                .field("oid", &oid)
                 .finish(),
         }
     }
@@ -504,9 +511,9 @@ impl TryFrom<StructureTag> for LdapControl {
 
                 Ok(LdapControl::PasswordPolicyRequest { criticality })
             }
-            oid => {
+            _ => {
                 warn!(%oid, "Unsupported control oid");
-                Err(LdapProtoError::ControlUnknown)
+                Ok(LdapControl::Unknown { oid })
             }
         }
     }
@@ -725,6 +732,7 @@ impl From<LdapControl> for Tag {
             LdapControl::PasswordPolicyRequest { criticality } => {
                 ("1.3.6.1.4.1.42.2.27.8.5.1", criticality, None)
             }
+            LdapControl::Unknown { ref oid } => (oid.as_str(), false, None),
         };
 
         let mut inner = Vec::with_capacity(3);
