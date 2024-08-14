@@ -24,9 +24,11 @@ fn main() {
     ldap3_cli_common::start_tracing(opt.verbose);
     info!("ldap debugging assistance tool");
 
+    /*
     if cfg!(feature = "strict") {
         info!("strict is enabled, some features may not work");
     }
+    */
 
     match opt.action {
         LdapDebugAction::BerDump(ber_dump_opts) => {
