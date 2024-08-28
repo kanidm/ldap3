@@ -1,8 +1,8 @@
 use crate::LdapClient;
 use crate::*;
-use base64urlsafedata::Base64UrlSafeData;
 use ldap3_proto::control::LdapControl;
 use serde::{Deserialize, Serialize};
+use serde_with::{base64, formats, serde_as};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub enum LdapSyncStateValue {
@@ -30,10 +30,12 @@ pub struct LdapSyncReplEntry {
     pub entry: LdapEntry,
 }
 
+#[serde_as]
 #[derive(Debug, Deserialize, Serialize)]
 pub enum LdapSyncRepl {
     Success {
-        cookie: Option<Base64UrlSafeData>,
+        #[serde_as(as = "Option<base64::Base64<base64::UrlSafe, formats::Unpadded>>")]
+        cookie: Option<Vec<u8>>,
         refresh_deletes: bool,
         entries: Vec<LdapSyncReplEntry>,
         delete_uuids: Option<Vec<Uuid>>,
@@ -96,7 +98,6 @@ impl LdapClient {
                         refresh_deletes,
                     }) = msg.ctrl.pop()
                     {
-                        let cookie = cookie.map(Base64UrlSafeData::from);
                         break Ok(LdapSyncRepl::Success {
                             cookie,
                             refresh_deletes,

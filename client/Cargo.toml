@@ -21,16 +21,16 @@ path = "src/lib.rs"
 
 [dependencies]
 base64.workspace = true
-base64urlsafedata.workspace = true
 futures-util = { workspace = true, features = ["sink"] }
 ldap3_proto = { workspace = true, features = ["serde"] }
-serde= { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["base64"] }
 openssl.workspace = true
 tokio = { workspace = true, features = ["net", "time", "sync", "io-util", "macros"] }
 tokio-util = { workspace = true, features = ["codec"] }
 tokio-openssl.workspace = true
 tracing.workspace = true
 url.workspace = true
-uuid= {workspace = true, features = ["serde"] }
+uuid = {workspace = true, features = ["serde"] }
 
 

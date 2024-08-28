@@ -8,7 +8,7 @@ members = ["proto", "client", "cli"]
 
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.2"
 authors = ["William Brown <william@blackhats.net.au>"]
 rust-version = "1.74"
 edition = "2021"
@@ -22,7 +22,6 @@ ldap3_client = { path = "./client", version = "0.5.0" }
 ldap3_proto = { path = "./proto", version = "0.5.0" }
 
 base64 = "0.21"
-base64urlsafedata = "0.5.0"
 bytes = "^1.1.0"
 clap = "^3.2"
 clap_complete = "^3.2.3"
@@ -38,6 +37,7 @@ rpassword = "7.0.0"
 serde = { version = "^1.0.136", features = ["derive"] }
 serde_json = "^1.0.79"
 serde_test = "^1.0.56"
+serde_with = "3.9.0"
 thiserror = "1.0"
 tokio = "^1.17.0"
 tokio-util = "^0.7.1"
