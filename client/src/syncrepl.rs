@@ -46,9 +46,9 @@ pub enum LdapSyncRepl {
 
 impl LdapClient {
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn syncrepl(
+    pub async fn syncrepl<S: Into<String>>(
         &mut self,
-        basedn: String,
+        basedn: S,
         filter: LdapFilter,
         cookie: Option<Vec<u8>>,
         mode: SyncRequestMode,
@@ -58,7 +58,7 @@ impl LdapClient {
         let msg = LdapMsg {
             msgid,
             op: LdapOp::SearchRequest(LdapSearchRequest {
-                base: basedn,
+                base: basedn.into(),
                 scope: LdapSearchScope::Subtree,
                 aliases: LdapDerefAliases::Never,
                 sizelimit: 0,

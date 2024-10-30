@@ -18,9 +18,9 @@ pub struct LdapSyncRepl {
 
 impl LdapClient {
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn ad_dirsync(
+    pub async fn ad_dirsync<S: Into<String>>(
         &mut self,
-        basedn: String,
+        basedn: S,
         cookie: Option<Vec<u8>>,
     ) -> crate::LdapResult<LdapSyncRepl> {
         let msgid = self.get_next_msgid();
@@ -28,7 +28,7 @@ impl LdapClient {
         let msg = LdapMsg {
             msgid,
             op: LdapOp::SearchRequest(LdapSearchRequest {
-                base: basedn,
+                base: basedn.into(),
                 scope: LdapSearchScope::Subtree,
                 aliases: LdapDerefAliases::Never,
                 sizelimit: 0,

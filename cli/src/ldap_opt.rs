@@ -58,7 +58,7 @@ struct LdapOpt {
     verbose: bool,
 
     #[clap(short = 'H', long = "url")]
-    url: url::Url,
+    url: String,
 
     #[clap(short = 'j', long = "json")]
     json: bool,
