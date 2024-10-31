@@ -12,6 +12,8 @@ impl Default for SyncRequestMode {
 }
 */
 
+use url::Url;
+
 #[derive(Debug, clap::Subcommand)]
 enum LdapAction {
     /// Search a directory server
@@ -58,7 +60,7 @@ struct LdapOpt {
     verbose: bool,
 
     #[clap(short = 'H', long = "url")]
-    url: String,
+    url: Url,
 
     #[clap(short = 'j', long = "json")]
     json: bool,

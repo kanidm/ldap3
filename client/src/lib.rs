@@ -12,7 +12,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use std::str::FromStr;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::time;
@@ -269,7 +268,7 @@ impl From<LdapSearchResultEntry> for LdapEntry {
 }
 
 pub struct LdapClientBuilder<'a> {
-    url: &'a str,
+    url: &'a Url,
     timeout: Duration,
     cas: Vec<&'a Path>,
     verify: bool,
@@ -278,7 +277,7 @@ pub struct LdapClientBuilder<'a> {
 }
 
 impl<'a> LdapClientBuilder<'a> {
-    pub fn new(url: &'a str) -> Self {
+    pub fn new(url: &'a Url) -> Self {
         LdapClientBuilder {
             url,
             timeout: Duration::from_secs(30),
@@ -324,8 +323,6 @@ impl<'a> LdapClientBuilder<'a> {
             verify,
             max_ber_size,
         } = self;
-
-        let url = Url::from_str(url).map_err(|_| LdapError::InvalidUrl)?;
 
         info!(%url);
         info!(?timeout);
@@ -557,7 +554,8 @@ impl LdapClient {
 /// Doesn't test the actual *build* step because that requires a live LDAP server.
 #[test]
 fn test_ldapclient_builder() {
-    let client = LdapClientBuilder::new("ldap://ldap.example.com:389").max_ber_size(Some(1234567));
+    let url = Url::parse("ldap://ldap.example.com:389").unwrap();
+    let client = LdapClientBuilder::new(&url).max_ber_size(Some(1234567));
     assert_eq!(client.timeout, Duration::from_secs(30));
     let client = client.set_timeout(Duration::from_secs(60));
     assert_eq!(client.timeout, Duration::from_secs(60));
