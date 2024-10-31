@@ -487,7 +487,8 @@ impl LdapClient {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn bind(&mut self, dn: String, pw: String) -> LdapResult<()> {
+    pub async fn bind<S: Into<String>>(&mut self, dn: S, pw: S) -> LdapResult<()> {
+        let dn = dn.into();
         info!(%dn);
         let msgid = self.get_next_msgid();
 
@@ -495,7 +496,7 @@ impl LdapClient {
             msgid,
             op: LdapOp::BindRequest(LdapBindRequest {
                 dn,
-                cred: LdapBindCred::Simple(pw),
+                cred: LdapBindCred::Simple(pw.into()),
             }),
             ctrl: vec![],
         };
