@@ -21,9 +21,6 @@ pub mod filter;
 pub mod proto;
 pub mod simple;
 
-#[cfg(feature = "serde")]
-pub mod serde;
-
 use bytes::{Buf, BytesMut};
 use lber::parse::Parser;
 use lber::structure::StructureTag;

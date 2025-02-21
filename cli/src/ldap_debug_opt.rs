@@ -28,10 +28,10 @@ struct BerDumpOptions {
     /// The format of the dump.
     ///
     /// * openldap_mem_dump
-    /// A formatted array of bytes, taken from an openldap memory dump.
-    /// This can be extract from gdb by examining `op->o_ber` from an operation.
-    /// Since this has been partially pre-processed by openldap, this is not a full
-    /// valid message. An example is `[0x00, 0x01, 0x02, ...]`
+    ///   A formatted array of bytes, taken from an openldap memory dump.
+    ///   This can be extract from gdb by examining `op->o_ber` from an operation.
+    ///   Since this has been partially pre-processed by openldap, this is not a full
+    ///   valid message. An example is `[0x00, 0x01, 0x02, ...]`
     ///
     #[clap(short, long)]
     format: DumpFormat,
