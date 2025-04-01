@@ -14,6 +14,7 @@ repository.workspace = true
 default = ["strict"]
 strict = []
 openssl-vendored = ["openssl/vendored"]
+serde = ["dep:serde", "uuid/serde"]
 
 [dependencies]
 base64.workspace = true
