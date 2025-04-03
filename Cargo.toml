@@ -18,8 +18,8 @@ repository = "https://github.com/kanidm/ldap3/"
 keywords = ["ldap", "protocol", "authentication", "chaos"]
 
 [workspace.dependencies]
-ldap3_client = { path = "./client", version = "=0.6.0" }
-ldap3_proto = { path = "./proto", version = "=0.6.0" }
+ldap3_client = { path = "./client", version = "=0.6.1" }
+ldap3_proto = { path = "./proto", version = "=0.6.1" }
 
 base64 = "0.21"
 bytes = "^1.1.0"
