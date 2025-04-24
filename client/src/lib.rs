@@ -28,11 +28,15 @@ use tokio::net::TcpStream;
 use tokio::time;
 use tokio_rustls::{
     client::TlsStream,
+    rustls::client::danger::*,
     rustls::client::ClientConfig,
-    rustls::pki_types::{pem::PemObject, CertificateDer, ServerName},
+    rustls::pki_types::{pem::PemObject, CertificateDer, ServerName, UnixTime},
+    rustls::Error as RustlsError,
     rustls::RootCertStore,
+    rustls::{DigitallySignedStruct, SignatureScheme},
     TlsConnector,
 };
+
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{error, info, trace, warn};
 use url::{Host, Url};
@@ -271,7 +275,7 @@ pub struct LdapClientBuilder<'a> {
     url: &'a Url,
     timeout: Duration,
     cas: Vec<&'a Path>,
-    _verify: bool,
+    verify: bool,
     /// The maximum LDAP packet size parsed during decoding.
     max_ber_size: Option<usize>,
 }
@@ -282,7 +286,7 @@ impl<'a> LdapClientBuilder<'a> {
             url,
             timeout: Duration::from_secs(30),
             cas: Vec::new(),
-            _verify: true,
+            verify: true,
             max_ber_size: None,
         }
     }
@@ -301,7 +305,7 @@ impl<'a> LdapClientBuilder<'a> {
 
     pub fn danger_accept_invalid_certs(self, accept_invalid_certs: bool) -> Self {
         Self {
-            _verify: !accept_invalid_certs,
+            verify: !accept_invalid_certs,
             ..self
         }
     }
@@ -320,7 +324,7 @@ impl<'a> LdapClientBuilder<'a> {
             url,
             timeout,
             cas,
-            _verify: _,
+            verify,
             max_ber_size,
         } = self;
 
@@ -393,10 +397,7 @@ impl<'a> LdapClientBuilder<'a> {
         // If ldaps - start rustls
         let (write_transport, read_transport) = if need_tls {
             // What about the `verify` flag?
-            let tls_client_config = if cas.is_empty() {
-                // Just use the system CA roots.
-                ClientConfig::with_platform_verifier()
-            } else {
+            let tls_client_config = if !cas.is_empty() {
                 let mut cert_store = RootCertStore::empty();
                 for ca in cas.iter() {
                     let mut file = File::open(ca).map_err(|e| {
@@ -429,6 +430,17 @@ impl<'a> LdapClientBuilder<'a> {
                 ClientConfig::builder()
                     .with_root_certificates(cert_store)
                     .with_no_client_auth()
+            } else if !verify {
+                warn!("⚠️ CERTIFICATE VERIFICATION IS DISABLED. THIS IS DANGEROUS!!!!");
+                let yolo_cert_validator = Arc::new(YoloCertValidator);
+
+                ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(yolo_cert_validator)
+                    .with_no_client_auth()
+            } else {
+                // Just use the system CA roots.
+                ClientConfig::with_platform_verifier()
             };
 
             let tls_connector = TlsConnector::from(Arc::new(tls_client_config));
@@ -565,6 +577,52 @@ impl LdapClient {
     }
 }
 
+#[derive(Debug)]
+struct YoloCertValidator;
+
+impl ServerCertVerifier for YoloCertValidator {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, RustlsError> {
+        // Yolo.
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+        ]
+    }
+}
+
 /// Doesn't test the actual *build* step because that requires a live LDAP server.
 #[test]
 fn test_ldapclient_builder() {
@@ -575,12 +633,12 @@ fn test_ldapclient_builder() {
     assert_eq!(client.timeout, Duration::from_secs(60));
     assert_eq!(client.cas.len(), 0);
     assert_eq!(client.max_ber_size, Some(1234567));
-    assert_eq!(client._verify, true);
+    assert_eq!(client.verify, true);
 
     let ca_path = "test.pem".to_string();
     let client = client.add_tls_ca(&ca_path);
     assert_eq!(client.cas.len(), 1);
 
     let badssl_client = client.danger_accept_invalid_certs(true);
-    assert_eq!(badssl_client._verify, false);
+    assert_eq!(badssl_client.verify, false);
 }
