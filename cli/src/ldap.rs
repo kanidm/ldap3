@@ -14,6 +14,7 @@
 use clap::Parser;
 use ldap3_client::proto::LdapFilter;
 use ldap3_client::*;
+use tracing::*;
 
 use base64::{engine::general_purpose, Engine as _};
 

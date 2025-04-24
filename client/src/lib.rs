@@ -10,43 +10,43 @@
 // We allow expect since it forces good error messages at the least.
 #![allow(clippy::expect_used)]
 
-use serde::{Deserialize, Serialize};
-use std::pin::Pin;
-use tokio::io::{ReadHalf, WriteHalf};
-use tokio::net::TcpStream;
-use tokio::time;
-pub use tokio::time::Duration;
-pub use tracing::{debug, error, info, span, trace, warn};
-
+use base64::{engine::general_purpose, Engine as _};
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
-
 use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
-use openssl::ssl::{Ssl, SslConnector, SslMethod, SslVerifyMode};
-use openssl::x509::X509;
+use rustls_platform_verifier::ConfigVerifierExt;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use tokio_openssl::SslStream;
+use std::sync::Arc;
+use tokio::io::{ReadHalf, WriteHalf};
+use tokio::net::TcpStream;
+use tokio::time;
+use tokio_rustls::{
+    client::TlsStream,
+    rustls::client::ClientConfig,
+    rustls::pki_types::{pem::PemObject, CertificateDer, ServerName},
+    rustls::RootCertStore,
+    TlsConnector,
+};
 use tokio_util::codec::{FramedRead, FramedWrite};
-
-use std::fmt;
-use url::Url;
+use tracing::{error, info, trace, warn};
+use url::{Host, Url};
 use uuid::Uuid;
-
-use base64::{engine::general_purpose, Engine as _};
 
 pub use ldap3_proto::filter;
 pub use ldap3_proto::proto;
+pub use search::LdapSearchResult;
+pub use syncrepl::{LdapSyncRepl, LdapSyncReplEntry, LdapSyncStateValue};
+pub use tokio::time::Duration;
 
 mod addirsync;
 mod search;
 mod syncrepl;
-
-pub use search::LdapSearchResult;
-pub use syncrepl::{LdapSyncRepl, LdapSyncReplEntry, LdapSyncStateValue};
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -126,7 +126,7 @@ pub type LdapResult<T> = Result<T, LdapError>;
 
 enum LdapReadTransport {
     Plain(FramedRead<ReadHalf<TcpStream>, LdapCodec>),
-    Tls(FramedRead<ReadHalf<SslStream<TcpStream>>, LdapCodec>),
+    Tls(FramedRead<ReadHalf<TlsStream<TcpStream>>, LdapCodec>),
 }
 
 impl fmt::Debug for LdapReadTransport {
@@ -146,7 +146,7 @@ impl fmt::Debug for LdapReadTransport {
 
 enum LdapWriteTransport {
     Plain(FramedWrite<WriteHalf<TcpStream>, LdapCodec>),
-    Tls(FramedWrite<WriteHalf<SslStream<TcpStream>>, LdapCodec>),
+    Tls(FramedWrite<WriteHalf<TlsStream<TcpStream>>, LdapCodec>),
 }
 
 impl fmt::Debug for LdapWriteTransport {
@@ -271,7 +271,7 @@ pub struct LdapClientBuilder<'a> {
     url: &'a Url,
     timeout: Duration,
     cas: Vec<&'a Path>,
-    verify: bool,
+    _verify: bool,
     /// The maximum LDAP packet size parsed during decoding.
     max_ber_size: Option<usize>,
 }
@@ -282,7 +282,7 @@ impl<'a> LdapClientBuilder<'a> {
             url,
             timeout: Duration::from_secs(30),
             cas: Vec::new(),
-            verify: true,
+            _verify: true,
             max_ber_size: None,
         }
     }
@@ -301,7 +301,7 @@ impl<'a> LdapClientBuilder<'a> {
 
     pub fn danger_accept_invalid_certs(self, accept_invalid_certs: bool) -> Self {
         Self {
-            verify: !accept_invalid_certs,
+            _verify: !accept_invalid_certs,
             ..self
         }
     }
@@ -320,7 +320,7 @@ impl<'a> LdapClientBuilder<'a> {
             url,
             timeout,
             cas,
-            verify,
+            _verify: _,
             max_ber_size,
         } = self;
 
@@ -390,59 +390,73 @@ impl<'a> LdapClientBuilder<'a> {
         // If they didn't set it in the builder then set it to the default
         let max_ber_size = max_ber_size.unwrap_or(ldap3_proto::DEFAULT_MAX_BER_SIZE);
 
-        // If ldaps - start openssl
+        // If ldaps - start rustls
         let (write_transport, read_transport) = if need_tls {
-            let mut tls_parms = SslConnector::builder(SslMethod::tls_client()).map_err(|e| {
-                error!(?e, "openssl");
-                LdapError::TlsError
-            })?;
+            // What about the `verify` flag?
+            let tls_client_config = if cas.is_empty() {
+                // Just use the system CA roots.
+                ClientConfig::with_platform_verifier()
+            } else {
+                let mut cert_store = RootCertStore::empty();
+                for ca in cas.iter() {
+                    let mut file = File::open(ca).map_err(|e| {
+                        error!(?e, "Unable to open {:?}", ca);
+                        LdapError::FileIOError
+                    })?;
 
-            let cert_store = tls_parms.cert_store_mut();
-            for ca in cas.iter() {
-                let mut file = File::open(ca).map_err(|e| {
-                    error!(?e, "Unable to open {:?}", ca);
-                    LdapError::FileIOError
-                })?;
+                    let mut pem = Vec::new();
+                    file.read_to_end(&mut pem).map_err(|e| {
+                        error!(?e, "Unable to read {:?}", ca);
+                        LdapError::FileIOError
+                    })?;
 
-                let mut pem = Vec::new();
-                file.read_to_end(&mut pem).map_err(|e| {
-                    error!(?e, "Unable to read {:?}", ca);
-                    LdapError::FileIOError
-                })?;
-
-                let ca_cert = X509::from_pem(pem.as_slice()).map_err(|e| {
-                    error!(?e, "openssl");
-                    LdapError::TlsError
-                })?;
-
-                cert_store
-                    .add_cert(ca_cert)
-                    .map(|()| {
-                        info!("Added {:?} to cert store", ca);
-                    })
-                    .map_err(|e| {
-                        error!(?e, "openssl");
+                    let ca_cert = CertificateDer::from_pem_slice(pem.as_slice()).map_err(|e| {
+                        error!(?e, "rustls");
                         LdapError::TlsError
                     })?;
-            }
-            if verify {
-                tls_parms.set_verify(SslVerifyMode::PEER);
-            } else {
-                tls_parms.set_verify(SslVerifyMode::NONE);
-            }
-            let tls_parms = tls_parms.build();
 
-            let mut tlsstream = Ssl::new(tls_parms.context())
-                .and_then(|tls_obj| SslStream::new(tls_obj, tcpstream))
-                .map_err(|e| {
-                    error!(?e, "openssl");
-                    LdapError::TlsError
-                })?;
+                    cert_store
+                        .add(ca_cert)
+                        .map(|()| {
+                            info!("Added {:?} to cert store", ca);
+                        })
+                        .map_err(|e| {
+                            error!(?e, "rustls");
+                            LdapError::TlsError
+                        })?;
+                }
 
-            SslStream::connect(Pin::new(&mut tlsstream))
+                ClientConfig::builder()
+                    .with_root_certificates(cert_store)
+                    .with_no_client_auth()
+            };
+
+            let tls_connector = TlsConnector::from(Arc::new(tls_client_config));
+
+            let server_name = match url.host() {
+                Some(Host::Domain(name)) => {
+                    ServerName::try_from(name.to_owned()).map_err(|err| {
+                        error!(?err, "server name invalid");
+                        LdapError::TlsError
+                    })?
+                }
+                Some(Host::Ipv4(addr)) => ServerName::from(addr),
+                Some(Host::Ipv6(addr)) => ServerName::from(addr),
+                None => {
+                    error!("url invalid");
+                    return Err(LdapError::TlsError);
+                }
+            };
+
+            let tlsstream = tls_connector
+                .connect(
+                    server_name,
+                    // Pin::new(&mut tcpstream)
+                    tcpstream,
+                )
                 .await
                 .map_err(|e| {
-                    error!(?e, "openssl");
+                    error!(?e, "rustls");
                     LdapError::TlsError
                 })?;
 
@@ -561,12 +575,12 @@ fn test_ldapclient_builder() {
     assert_eq!(client.timeout, Duration::from_secs(60));
     assert_eq!(client.cas.len(), 0);
     assert_eq!(client.max_ber_size, Some(1234567));
-    assert_eq!(client.verify, true);
+    assert_eq!(client._verify, true);
 
     let ca_path = "test.pem".to_string();
     let client = client.add_tls_ca(&ca_path);
     assert_eq!(client.cas.len(), 1);
 
     let badssl_client = client.danger_accept_invalid_certs(true);
-    assert_eq!(badssl_client.verify, false);
+    assert_eq!(badssl_client._verify, false);
 }
