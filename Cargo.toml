@@ -8,7 +8,7 @@ members = ["proto", "client", "cli"]
 
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 authors = ["William Brown <william@blackhats.net.au>"]
 rust-version = "1.74"
 edition = "2021"
@@ -31,7 +31,6 @@ lber = "^0.4.0"
 # Must match lber
 nom = "7"
 peg = "0.8.1"
-openssl = "^0.10.38"
 ron = "^0.8.0"
 rpassword = "7.0.0"
 serde = { version = "^1.0.136", features = ["derive"] }
@@ -41,7 +40,8 @@ serde_with = "3.9.0"
 thiserror = "1.0"
 tokio = "^1.17.0"
 tokio-util = "^0.7.1"
-tokio-openssl = "^0.6.3"
+tokio-rustls = { version = "0.26.2" }
+rustls-platform-verifier = "0.5.1"
 tracing = { version = "^0.1.34", features = ["attributes"] }
 tracing-subscriber = "^0.3.11"
 url = "^2.2.2"

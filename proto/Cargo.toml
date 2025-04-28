@@ -13,7 +13,6 @@ repository.workspace = true
 [features]
 default = ["strict"]
 strict = []
-openssl-vendored = ["openssl/vendored"]
 serde = ["dep:serde", "uuid/serde"]
 
 [dependencies]
@@ -30,13 +29,8 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
-
 futures-util.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "io-util", "net", "signal", "macros"] }
 futures.workspace = true
-
-tokio-openssl.workspace = true
-openssl.workspace = true
 sspi.workspace = true
-
 serde_test.workspace = true

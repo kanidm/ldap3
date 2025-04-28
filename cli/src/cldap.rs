@@ -12,7 +12,7 @@
 #![allow(clippy::expect_used)]
 
 use clap::Parser;
-use ldap3_client::*;
+use tracing::*;
 
 include!("./cldap_opt.rs");
 
