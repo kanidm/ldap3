@@ -578,6 +578,7 @@ impl LdapClient {
 }
 
 #[derive(Debug)]
+/// This should never be used for anything but testing, as it does no verification!
 struct YoloCertValidator;
 
 impl ServerCertVerifier for YoloCertValidator {
