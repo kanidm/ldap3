@@ -7,11 +7,13 @@ pub struct LdapSearchResult {
 }
 
 impl LdapClient {
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn search<S: Into<String>>(
+    #[tracing::instrument(name = "search", level = "debug", skip_all)]
+    pub async fn search_with(
         &mut self,
-        basedn: S,
+        basedn: impl Into<String>,
         filter: LdapFilter,
+        scope: LdapSearchScope,
+        attrs: impl IntoIterator<Item: Into<String>>,
     ) -> crate::LdapResult<LdapSearchResult> {
         let msgid = self.get_next_msgid();
 
@@ -19,13 +21,13 @@ impl LdapClient {
             msgid,
             op: LdapOp::SearchRequest(LdapSearchRequest {
                 base: basedn.into(),
-                scope: LdapSearchScope::Subtree,
+                scope,
                 aliases: LdapDerefAliases::Never,
                 sizelimit: 0,
                 timelimit: 0,
                 typesonly: false,
                 filter,
-                attrs: vec!["*".to_string(), "+".to_string()],
+                attrs: attrs.into_iter().map(Into::into).collect(),
             }),
             ctrl: vec![],
         };
@@ -70,5 +72,14 @@ impl LdapClient {
                 }
             };
         }
+    }
+
+    pub async fn search<S: Into<String>>(
+        &mut self,
+        basedn: S,
+        filter: LdapFilter,
+    ) -> crate::LdapResult<LdapSearchResult> {
+        self.search_with(basedn, filter, LdapSearchScope::Subtree, ["*", "+"])
+            .await
     }
 }
