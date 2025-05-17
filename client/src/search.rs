@@ -74,9 +74,9 @@ impl LdapClient {
         }
     }
 
-    pub async fn search<S: Into<String>>(
+    pub async fn search(
         &mut self,
-        basedn: S,
+        basedn: impl Into<String>,
         filter: LdapFilter,
     ) -> crate::LdapResult<LdapSearchResult> {
         self.search_with(basedn, filter, LdapSearchScope::Subtree, ["*", "+"])
