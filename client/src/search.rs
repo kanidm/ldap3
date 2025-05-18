@@ -1,3 +1,5 @@
+use std::future::{Future, IntoFuture};
+
 use crate::LdapClient;
 use crate::*;
 
@@ -7,37 +9,63 @@ pub struct LdapSearchResult {
 }
 
 impl LdapClient {
+    pub fn search(&mut self, basedn: impl Into<String>, filter: LdapFilter) -> SearchBuilder<'_> {
+        SearchBuilder {
+            client: self,
+            basedn: basedn.into(),
+            filter,
+            scope: LdapSearchScope::Subtree,
+            attrs: vec![String::from("*"), String::from("+")],
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SearchBuilder<'c> {
+    client: &'c mut LdapClient,
+    basedn: String,
+    filter: LdapFilter,
+    scope: LdapSearchScope,
+    attrs: Vec<String>,
+}
+
+impl SearchBuilder<'_> {
+    pub fn scope(self, scope: LdapSearchScope) -> Self {
+        Self { scope, ..self }
+    }
+
+    pub fn attrs(self, attrs: impl IntoIterator<Item: Into<String>>) -> Self {
+        Self {
+            attrs: attrs.into_iter().map(Into::into).collect(),
+            ..self
+        }
+    }
+
     #[tracing::instrument(name = "search", level = "debug", skip_all)]
-    pub async fn search_with(
-        &mut self,
-        basedn: impl Into<String>,
-        filter: LdapFilter,
-        scope: LdapSearchScope,
-        attrs: impl IntoIterator<Item: Into<String>>,
-    ) -> crate::LdapResult<LdapSearchResult> {
-        let msgid = self.get_next_msgid();
+    pub async fn send(self) -> crate::LdapResult<LdapSearchResult> {
+        let msgid = self.client.get_next_msgid();
 
         let msg = LdapMsg {
             msgid,
             op: LdapOp::SearchRequest(LdapSearchRequest {
-                base: basedn.into(),
-                scope,
+                base: self.basedn,
+                scope: self.scope,
                 aliases: LdapDerefAliases::Never,
                 sizelimit: 0,
                 timelimit: 0,
                 typesonly: false,
-                filter,
-                attrs: attrs.into_iter().map(Into::into).collect(),
+                filter: self.filter,
+                attrs: self.attrs,
             }),
             ctrl: vec![],
         };
 
-        self.write_transport.send(msg).await?;
+        self.client.write_transport.send(msg).await?;
 
         let mut entries: Vec<LdapEntry> = Vec::new();
 
         loop {
-            let msg = self.read_transport.next().await?;
+            let msg = self.client.read_transport.next().await?;
 
             match msg.op {
                 // Happy cases here
@@ -73,13 +101,17 @@ impl LdapClient {
             };
         }
     }
+}
 
-    pub async fn search(
-        &mut self,
-        basedn: impl Into<String>,
-        filter: LdapFilter,
-    ) -> crate::LdapResult<LdapSearchResult> {
-        self.search_with(basedn, filter, LdapSearchScope::Subtree, ["*", "+"])
-            .await
+// this implementation allows for .await on a SearchBuilder
+impl<'c> IntoFuture for SearchBuilder<'c> {
+    type Output = crate::LdapResult<LdapSearchResult>;
+
+    // FIXME: donnot box future when it is possible to name future from Self::send
+    // type IntoFuture = Self::send(..);
+    type IntoFuture = std::pin::Pin<Box<dyn Future<Output = Self::Output> + Send + Sync + 'c>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
     }
 }
