@@ -57,6 +57,12 @@ pub enum LdapProtoError {
     ControlPagedInteger,
     #[error("Missing cookie data in paged search control")]
     ControlPagedCookie,
+    #[error("Invalid integer in search options control")]
+    ControlSearchOptionsInteger,
+    #[error("Invalid integer in SD flags control")]
+    ControlSdFlagsInteger,
+    #[error("Invalid integer in extended DN control")]
+    ControlExtendedDnInteger,
 
     #[error("Invalid BER in bind credentials")]
     BindCredBer,
