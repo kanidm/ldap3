@@ -14,6 +14,7 @@
 use clap::Parser;
 use ldap3_client::proto::LdapFilter;
 use ldap3_client::*;
+use rustls_pki_types::pem::PemObject;
 use tracing::*;
 
 use base64::{engine::general_purpose, Engine as _};
@@ -63,13 +64,17 @@ async fn main() {
 
     let builder = LdapClientBuilder::new(&opt.url);
 
-    let builder = if let Some(ca_cert_path) = opt.ca_cert.as_ref() {
-        builder.add_tls_ca(ca_cert_path)
+    let build_res = if let Some(ca_cert_path) = opt.ca_cert.as_ref() {
+        if let Ok(ca_cert) = rustls_pki_types::CertificateDer::from_pem_file(ca_cert_path) {
+            builder.with_only_tls_ca(ca_cert).build().await
+        } else {
+            builder.build().await
+        }
     } else {
-        builder
+        builder.build().await
     };
 
-    let mut client = match builder.build().await {
+    let mut client = match build_res {
         Ok(c) => c,
         Err(e) => {
             if opt.json {

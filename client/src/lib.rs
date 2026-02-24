@@ -15,13 +15,9 @@ use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
-use rustls_platform_verifier::ConfigVerifierExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
@@ -30,9 +26,8 @@ use tokio_rustls::{
     client::TlsStream,
     rustls::client::danger::*,
     rustls::client::ClientConfig,
-    rustls::pki_types::{pem::PemObject, CertificateDer, ServerName, UnixTime},
+    rustls::pki_types::{CertificateDer, ServerName, UnixTime},
     rustls::Error as RustlsError,
-    rustls::RootCertStore,
     rustls::{DigitallySignedStruct, SignatureScheme},
     TlsConnector,
 };
@@ -271,13 +266,121 @@ impl From<LdapSearchResultEntry> for LdapEntry {
     }
 }
 
-pub struct LdapClientBuilder<'a> {
+mod verifier_builder {
+    use std::sync::Arc;
+
+    use rustls_platform_verifier::BuilderVerifierExt;
+    use tokio_rustls::rustls::{self, pki_types::CertificateDer, ConfigBuilder, RootCertStore};
+    use tracing::warn;
+
+    use crate::YoloCertValidator;
+
+    #[derive(Debug, Default)]
+    pub struct NoVerifierBuilder;
+    #[derive(Debug, Default)]
+    pub struct PlatformVerifierBuilder;
+
+    #[derive(Debug, Default)]
+    pub struct CustomCasBuilder {
+        pub cas: Vec<CertificateDer<'static>>,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct PlatformVerifierWithCasBuilder {
+        pub cas: Vec<CertificateDer<'static>>,
+    }
+
+    impl Extend<CertificateDer<'static>> for CustomCasBuilder {
+        fn extend<T: IntoIterator<Item = CertificateDer<'static>>>(&mut self, iter: T) {
+            self.cas.extend(iter);
+        }
+    }
+
+    impl Extend<CertificateDer<'static>> for PlatformVerifierWithCasBuilder {
+        fn extend<T: IntoIterator<Item = CertificateDer<'static>>>(&mut self, iter: T) {
+            self.cas.extend(iter);
+        }
+    }
+
+    pub trait VerifierBuilder {
+        fn build(
+            self,
+            config: ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,
+        ) -> Result<
+            ConfigBuilder<rustls::ClientConfig, rustls::client::WantsClientCert>,
+            rustls::Error,
+        >;
+    }
+
+    impl VerifierBuilder for NoVerifierBuilder {
+        fn build(
+            self,
+            config: ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,
+        ) -> Result<
+            ConfigBuilder<rustls::ClientConfig, rustls::client::WantsClientCert>,
+            rustls::Error,
+        > {
+            warn!("⚠️ CERTIFICATE VERIFICATION IS DISABLED. THIS IS DANGEROUS!!!!");
+            let yolo_cert_validator = YoloCertValidator;
+            Ok(config
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(yolo_cert_validator)))
+        }
+    }
+
+    impl VerifierBuilder for PlatformVerifierBuilder {
+        fn build(
+            self,
+            config: ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,
+        ) -> Result<
+            ConfigBuilder<rustls::ClientConfig, rustls::client::WantsClientCert>,
+            rustls::Error,
+        > {
+            config.with_platform_verifier()
+        }
+    }
+
+    impl VerifierBuilder for CustomCasBuilder {
+        fn build(
+            self,
+            config: ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,
+        ) -> Result<
+            ConfigBuilder<rustls::ClientConfig, rustls::client::WantsClientCert>,
+            rustls::Error,
+        > {
+            let mut trust_store = RootCertStore::empty();
+            for der in self.cas {
+                trust_store.add(der)?;
+            }
+            Ok(config.with_root_certificates(trust_store))
+        }
+    }
+
+    impl VerifierBuilder for PlatformVerifierWithCasBuilder {
+        fn build(
+            self,
+            config: ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,
+        ) -> Result<
+            ConfigBuilder<rustls::ClientConfig, rustls::client::WantsClientCert>,
+            rustls::Error,
+        > {
+            let verifier = rustls_platform_verifier::Verifier::new_with_extra_roots(
+                self.cas,
+                config.crypto_provider().clone(),
+            )?;
+            Ok(config
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier)))
+        }
+    }
+}
+
+pub struct LdapClientBuilder<'a, VB = verifier_builder::PlatformVerifierBuilder> {
     url: &'a Url,
     timeout: Duration,
-    cas: Vec<&'a Path>,
-    verify: bool,
     /// The maximum LDAP packet size parsed during decoding.
     max_ber_size: Option<usize>,
+    verifier_builder: VB,
 }
 
 impl<'a> LdapClientBuilder<'a> {
@@ -285,29 +388,65 @@ impl<'a> LdapClientBuilder<'a> {
         LdapClientBuilder {
             url,
             timeout: Duration::from_secs(30),
-            cas: Vec::new(),
-            verify: true,
             max_ber_size: None,
+            verifier_builder: verifier_builder::PlatformVerifierBuilder,
+        }
+    }
+
+    pub fn with_tls_ca(
+        self,
+        ca: CertificateDer<'static>,
+    ) -> LdapClientBuilder<'a, verifier_builder::PlatformVerifierWithCasBuilder> {
+        LdapClientBuilder {
+            url: self.url,
+            timeout: self.timeout,
+            max_ber_size: self.max_ber_size,
+            verifier_builder: verifier_builder::PlatformVerifierWithCasBuilder::default(),
+        }
+        .with_tls_ca(ca)
+    }
+
+    pub fn with_only_tls_ca(
+        self,
+        ca: CertificateDer<'static>,
+    ) -> LdapClientBuilder<'a, verifier_builder::CustomCasBuilder> {
+        LdapClientBuilder {
+            url: self.url,
+            timeout: self.timeout,
+            max_ber_size: self.max_ber_size,
+            verifier_builder: verifier_builder::CustomCasBuilder::default(),
+        }
+        .with_tls_ca(ca)
+    }
+}
+
+impl<VB: verifier_builder::VerifierBuilder + Extend<CertificateDer<'static>>>
+    LdapClientBuilder<'_, VB>
+{
+    pub fn add_tls_ca(&mut self, ca: CertificateDer<'static>) {
+        self.verifier_builder.extend([ca]);
+    }
+
+    pub fn with_tls_ca(mut self, ca: CertificateDer<'static>) -> Self {
+        self.add_tls_ca(ca);
+        self
+    }
+}
+
+impl<'a, VB: verifier_builder::VerifierBuilder> LdapClientBuilder<'a, VB> {
+    pub fn danger_accept_invalid_certs(
+        self,
+    ) -> LdapClientBuilder<'a, verifier_builder::NoVerifierBuilder> {
+        LdapClientBuilder {
+            url: self.url,
+            timeout: self.timeout,
+            max_ber_size: self.max_ber_size,
+            verifier_builder: verifier_builder::NoVerifierBuilder,
         }
     }
 
     pub fn set_timeout(self, timeout: Duration) -> Self {
         Self { timeout, ..self }
-    }
-
-    pub fn add_tls_ca<T>(mut self, ca: &'a T) -> Self
-    where
-        T: AsRef<Path>,
-    {
-        self.cas.push(ca.as_ref());
-        self
-    }
-
-    pub fn danger_accept_invalid_certs(self, accept_invalid_certs: bool) -> Self {
-        Self {
-            verify: !accept_invalid_certs,
-            ..self
-        }
     }
 
     /// Set the maximum size of a decoded message
@@ -323,9 +462,8 @@ impl<'a> LdapClientBuilder<'a> {
         let LdapClientBuilder {
             url,
             timeout,
-            cas,
-            verify,
             max_ber_size,
+            verifier_builder,
         } = self;
 
         info!(%url);
@@ -397,51 +535,14 @@ impl<'a> LdapClientBuilder<'a> {
         // If ldaps - start rustls
         let (write_transport, read_transport) = if need_tls {
             // What about the `verify` flag?
-            let tls_client_config = if !cas.is_empty() {
-                let mut cert_store = RootCertStore::empty();
-                for ca in cas.iter() {
-                    let mut file = File::open(ca).map_err(|e| {
-                        error!(?e, "Unable to open {:?}", ca);
-                        LdapError::FileIOError
-                    })?;
+            let client_config_builder = ClientConfig::builder();
+            let client_config_builder =
+                verifier_builder.build(client_config_builder).map_err(|e| {
+                    error!(?e, "rustls");
+                    LdapError::TlsError
+                })?;
 
-                    let mut pem = Vec::new();
-                    file.read_to_end(&mut pem).map_err(|e| {
-                        error!(?e, "Unable to read {:?}", ca);
-                        LdapError::FileIOError
-                    })?;
-
-                    let ca_cert = CertificateDer::from_pem_slice(pem.as_slice()).map_err(|e| {
-                        error!(?e, "rustls");
-                        LdapError::TlsError
-                    })?;
-
-                    cert_store
-                        .add(ca_cert)
-                        .map(|()| {
-                            info!("Added {:?} to cert store", ca);
-                        })
-                        .map_err(|e| {
-                            error!(?e, "rustls");
-                            LdapError::TlsError
-                        })?;
-                }
-
-                ClientConfig::builder()
-                    .with_root_certificates(cert_store)
-                    .with_no_client_auth()
-            } else if !verify {
-                warn!("⚠️ CERTIFICATE VERIFICATION IS DISABLED. THIS IS DANGEROUS!!!!");
-                let yolo_cert_validator = Arc::new(YoloCertValidator);
-
-                ClientConfig::builder()
-                    .dangerous()
-                    .with_custom_certificate_verifier(yolo_cert_validator)
-                    .with_no_client_auth()
-            } else {
-                // Just use the system CA roots.
-                ClientConfig::with_platform_verifier()
-            };
+            let tls_client_config = client_config_builder.with_no_client_auth();
 
             let tls_connector = TlsConnector::from(Arc::new(tls_client_config));
 
@@ -632,14 +733,18 @@ fn test_ldapclient_builder() {
     assert_eq!(client.timeout, Duration::from_secs(30));
     let client = client.set_timeout(Duration::from_secs(60));
     assert_eq!(client.timeout, Duration::from_secs(60));
-    assert_eq!(client.cas.len(), 0);
     assert_eq!(client.max_ber_size, Some(1234567));
-    assert_eq!(client.verify, true);
+    assert!(matches!(
+        client.verifier_builder,
+        verifier_builder::PlatformVerifierBuilder
+    ));
 
-    let ca_path = "test.pem".to_string();
-    let client = client.add_tls_ca(&ca_path);
-    assert_eq!(client.cas.len(), 1);
+    let client = client.with_only_tls_ca(CertificateDer::from_slice("test certificate".as_bytes()));
+    assert_eq!(client.verifier_builder.cas.len(), 1);
 
-    let badssl_client = client.danger_accept_invalid_certs(true);
-    assert_eq!(badssl_client.verify, false);
+    let badssl_client = client.danger_accept_invalid_certs();
+    assert!(matches!(
+        badssl_client.verifier_builder,
+        verifier_builder::NoVerifierBuilder
+    ));
 }
