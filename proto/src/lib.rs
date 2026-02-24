@@ -683,6 +683,109 @@ mod tests {
     }
 
     #[test]
+    fn test_ldapserver_search_with_search_options_control() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::SearchOptions {
+                criticality: true,
+                flags: 0x02,
+            }],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_search_with_show_deleted_control() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::ShowDeleted { criticality: true }],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_search_with_sd_flags_control() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::SdFlags {
+                criticality: true,
+                flags: 0x07,
+            }],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_search_with_extended_dn_control() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::ExtendedDn {
+                criticality: true,
+                format: 1,
+            }],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_unknown_control_preserves_value() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::Unknown {
+                oid: "1.2.3.4.5.6.7.8.9".to_string(),
+                criticality: true,
+                value: Some(vec![0x30, 0x03, 0x02, 0x01, 0x05]),
+            }],
+        });
+    }
+
+    #[test]
     pub fn test_equality_filter() {
         let filter = parse_ldap_filter_str("(cn=test)").unwrap();
         if let LdapFilter::Equality(name, value) = filter {

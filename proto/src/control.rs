@@ -63,10 +63,40 @@ pub enum LdapControl {
     PasswordPolicyRequest {
         criticality: bool,
     },
+    // 1.2.840.113556.1.4.1338
+    SearchOptions {
+        criticality: bool,
+        flags: i32,
+    },
+    // 1.2.840.113556.1.4.417
+    ShowDeleted {
+        criticality: bool,
+    },
+    // 1.2.840.113556.1.4.801
+    SdFlags {
+        criticality: bool,
+        flags: i32,
+    },
+    // 1.2.840.113556.1.4.529
+    ExtendedDn {
+        criticality: bool,
+        format: i32,
+    },
     Unknown {
         oid: String,
+        criticality: bool,
+        value: Option<Vec<u8>>,
     },
 }
+
+/// Flag for `SearchOptions`: search across all naming contexts (phantom root).
+pub const SEARCH_FLAG_PHANTOM_ROOT: i32 = 0x02;
+
+/// SD flags bitmask constants for `SdFlags` control.
+pub const SD_FLAG_OWNER: i32 = 0x01;
+pub const SD_FLAG_GROUP: i32 = 0x02;
+pub const SD_FLAG_DACL: i32 = 0x04;
+pub const SD_FLAG_SACL: i32 = 0x08;
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
@@ -160,10 +190,40 @@ impl fmt::Debug for LdapControl {
                 .debug_struct("LdapControl::PasswordPolicyRequest")
                 .field("criticality", &criticality)
                 .finish(),
-            LdapControl::Unknown { oid } => f
-                .debug_struct("LdapControl::Unknown")
-                .field("oid", &oid)
+            LdapControl::SearchOptions { criticality, flags } => f
+                .debug_struct("LdapControl::SearchOptions")
+                .field("criticality", &criticality)
+                .field("flags", &flags)
                 .finish(),
+            LdapControl::ShowDeleted { criticality } => f
+                .debug_struct("LdapControl::ShowDeleted")
+                .field("criticality", &criticality)
+                .finish(),
+            LdapControl::SdFlags { criticality, flags } => f
+                .debug_struct("LdapControl::SdFlags")
+                .field("criticality", &criticality)
+                .field("flags", &flags)
+                .finish(),
+            LdapControl::ExtendedDn {
+                criticality,
+                format,
+            } => f
+                .debug_struct("LdapControl::ExtendedDn")
+                .field("criticality", &criticality)
+                .field("format", &format)
+                .finish(),
+            LdapControl::Unknown {
+                oid,
+                criticality,
+                value,
+            } => {
+                let d_value = value.as_ref().map(|v| bytes_to_string!(v));
+                f.debug_struct("LdapControl::Unknown")
+                    .field("oid", &oid)
+                    .field("criticality", &criticality)
+                    .field("value", &d_value)
+                    .finish()
+            }
         }
     }
 }
@@ -187,10 +247,18 @@ impl TryFrom<StructureTag> for LdapControl {
                 (o, c, v)
             }
             2 => {
-                let v = seq.pop();
-                let c = None;
+                let second = seq.pop();
                 let o = seq.pop();
-                (o, c, v)
+                // Distinguish criticality (Boolean, id=1) from value (OctetString, id=4)
+                let is_boolean = second
+                    .as_ref()
+                    .map(|t| t.class == TagClass::Universal && t.id == Types::Boolean as u64)
+                    .unwrap_or(false);
+                if is_boolean {
+                    (o, second, None)
+                } else {
+                    (o, None, second)
+                }
             }
             3 => {
                 let v = seq.pop();
@@ -511,9 +579,153 @@ impl TryFrom<StructureTag> for LdapControl {
 
                 Ok(LdapControl::PasswordPolicyRequest { criticality })
             }
+            "1.2.840.113556.1.4.1338" => {
+                // SearchOptions control
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                let value_ber = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                let mut parser = Parser::new();
+                let (_rem, value) = parser
+                    .parse(&value_ber)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
+
+                let mut value = value
+                    .expect_constructed()
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                value.reverse();
+
+                let flags = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Integer as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_integer_to_i64)
+                    .ok_or(LdapProtoError::ControlSearchOptionsInteger)?
+                    as i32;
+
+                Ok(LdapControl::SearchOptions { criticality, flags })
+            }
+            "1.2.840.113556.1.4.417" => {
+                // ShowDeleted control — no value
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                Ok(LdapControl::ShowDeleted { criticality })
+            }
+            "1.2.840.113556.1.4.801" => {
+                // SdFlags control
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                let value_ber = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                let mut parser = Parser::new();
+                let (_rem, value) = parser
+                    .parse(&value_ber)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
+
+                let mut value = value
+                    .expect_constructed()
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                value.reverse();
+
+                let flags = value
+                    .pop()
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Integer as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_integer_to_i64)
+                    .ok_or(LdapProtoError::ControlSdFlagsInteger)?
+                    as i32;
+
+                Ok(LdapControl::SdFlags { criticality, flags })
+            }
+            "1.2.840.113556.1.4.529" => {
+                // ExtendedDn control
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                let format = if let Some(value_ber) = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                {
+                    let mut parser = Parser::new();
+                    let (_rem, value) = parser
+                        .parse(&value_ber)
+                        .map_err(|_| LdapProtoError::ControlBer)?;
+
+                    let mut value = value
+                        .expect_constructed()
+                        .ok_or(LdapProtoError::ControlBer)?;
+
+                    value.reverse();
+
+                    value
+                        .pop()
+                        .and_then(|t| t.match_class(TagClass::Universal))
+                        .and_then(|t| t.match_id(Types::Integer as u64))
+                        .and_then(|t| t.expect_primitive())
+                        .and_then(ber_integer_to_i64)
+                        .ok_or(LdapProtoError::ControlExtendedDnInteger)? as i32
+                } else {
+                    // Absent value means hex format (0)
+                    0
+                };
+
+                Ok(LdapControl::ExtendedDn {
+                    criticality,
+                    format,
+                })
+            }
             _ => {
                 warn!(%oid, "Unsupported control oid");
-                Ok(LdapControl::Unknown { oid })
+
+                let criticality = criticality_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::Boolean as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .and_then(ber_bool_to_bool)
+                    .unwrap_or(false);
+
+                let value = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive());
+
+                Ok(LdapControl::Unknown {
+                    oid,
+                    criticality,
+                    value,
+                })
             }
         }
     }
@@ -521,7 +733,7 @@ impl TryFrom<StructureTag> for LdapControl {
 
 impl From<LdapControl> for Tag {
     fn from(value: LdapControl) -> Tag {
-        let (oid, crit, inner_tag) = match value {
+        let (oid, crit, inner_tag, raw_value) = match value {
             LdapControl::SyncRequest {
                 criticality,
                 mode,
@@ -556,6 +768,7 @@ impl From<LdapControl> for Tag {
                         inner: inner.into_iter().flatten().collect(),
                         ..Default::default()
                     })),
+                    None,
                 )
             }
             LdapControl::SyncState {
@@ -587,6 +800,7 @@ impl From<LdapControl> for Tag {
                         inner: inner.into_iter().flatten().collect(),
                         ..Default::default()
                     })),
+                    None,
                 )
             }
             LdapControl::SyncDone {
@@ -617,6 +831,7 @@ impl From<LdapControl> for Tag {
                         inner: inner.into_iter().flatten().collect(),
                         ..Default::default()
                     })),
+                    None,
                 )
             }
             LdapControl::AdDirsync {
@@ -647,6 +862,7 @@ impl From<LdapControl> for Tag {
                         inner,
                         ..Default::default()
                     })),
+                    None,
                 )
             }
             LdapControl::SimplePagedResults { size, cookie } => {
@@ -668,10 +884,11 @@ impl From<LdapControl> for Tag {
                         inner,
                         ..Default::default()
                     })),
+                    None,
                 )
             }
             LdapControl::ManageDsaIT { criticality } => {
-                ("2.16.840.1.113730.3.4.2", criticality, None)
+                ("2.16.840.1.113730.3.4.2", criticality, None, None)
             }
             LdapControl::ServerSort { sort_requests } => {
                 let inner: Vec<_> = sort_requests
@@ -707,6 +924,7 @@ impl From<LdapControl> for Tag {
                         inner,
                         ..Default::default()
                     })),
+                    None,
                 )
             }
             LdapControl::ServerSortResult { sort_result } => {
@@ -727,12 +945,68 @@ impl From<LdapControl> for Tag {
                         inner,
                         ..Default::default()
                     })),
+                    None,
                 )
             }
             LdapControl::PasswordPolicyRequest { criticality } => {
-                ("1.3.6.1.4.1.42.2.27.8.5.1", criticality, None)
+                ("1.3.6.1.4.1.42.2.27.8.5.1", criticality, None, None)
             }
-            LdapControl::Unknown { ref oid } => (oid.as_str(), false, None),
+            LdapControl::SearchOptions { criticality, flags } => {
+                let inner = vec![Tag::Integer(Integer {
+                    inner: flags as i64,
+                    ..Default::default()
+                })];
+                (
+                    "1.2.840.113556.1.4.1338",
+                    criticality,
+                    Some(Tag::Sequence(Sequence {
+                        inner,
+                        ..Default::default()
+                    })),
+                    None,
+                )
+            }
+            LdapControl::ShowDeleted { criticality } => {
+                ("1.2.840.113556.1.4.417", criticality, None, None)
+            }
+            LdapControl::SdFlags { criticality, flags } => {
+                let inner = vec![Tag::Integer(Integer {
+                    inner: flags as i64,
+                    ..Default::default()
+                })];
+                (
+                    "1.2.840.113556.1.4.801",
+                    criticality,
+                    Some(Tag::Sequence(Sequence {
+                        inner,
+                        ..Default::default()
+                    })),
+                    None,
+                )
+            }
+            LdapControl::ExtendedDn {
+                criticality,
+                format,
+            } => {
+                let inner = vec![Tag::Integer(Integer {
+                    inner: format as i64,
+                    ..Default::default()
+                })];
+                (
+                    "1.2.840.113556.1.4.529",
+                    criticality,
+                    Some(Tag::Sequence(Sequence {
+                        inner,
+                        ..Default::default()
+                    })),
+                    None,
+                )
+            }
+            LdapControl::Unknown {
+                ref oid,
+                criticality,
+                ref value,
+            } => (oid.as_str(), criticality, None, value.clone()),
         };
 
         let mut inner = Vec::with_capacity(3);
@@ -754,6 +1028,12 @@ impl From<LdapControl> for Tag {
                 .expect("Failed to encode inner structure, this is a bug!");
             inner.push(Tag::OctetString(OctetString {
                 inner: bytes.to_vec(),
+                ..Default::default()
+            }));
+        } else if let Some(raw_value) = raw_value {
+            // Unknown control with raw value bytes — emit directly without re-encoding
+            inner.push(Tag::OctetString(OctetString {
+                inner: raw_value,
                 ..Default::default()
             }));
         }
