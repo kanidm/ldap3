@@ -17,6 +17,7 @@ use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
 use rustls_platform_verifier::ConfigVerifierExt;
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
@@ -267,16 +268,16 @@ impl From<LdapSearchResultEntry> for LdapEntry {
     }
 }
 
-pub struct LdapClientBuilder<'a> {
-    url: &'a Url,
+pub struct LdapClientBuilder<U> {
+    url: U,
     timeout: Duration,
     /// The maximum LDAP packet size parsed during decoding.
     max_ber_size: Option<usize>,
     rustls_client: Option<Arc<ClientConfig>>,
 }
 
-impl<'a> LdapClientBuilder<'a> {
-    pub fn new(url: &'a Url) -> Self {
+impl<U: Borrow<Url>> LdapClientBuilder<U> {
+    pub fn new(url: U) -> Self {
         Self {
             url,
             timeout: Duration::from_secs(30),
@@ -329,6 +330,8 @@ impl<'a> LdapClientBuilder<'a> {
             max_ber_size,
             rustls_client,
         } = self;
+
+        let url = url.borrow();
 
         info!(%url);
         info!(?timeout);
