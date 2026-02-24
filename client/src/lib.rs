@@ -268,6 +268,7 @@ impl From<LdapSearchResultEntry> for LdapEntry {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct LdapClientBuilder<U> {
     url: U,
     timeout: Duration,
