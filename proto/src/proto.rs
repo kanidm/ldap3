@@ -1273,8 +1273,39 @@ impl TryFrom<StructureTag> for LdapBindCred {
                 .and_then(|bv| String::from_utf8(bv).ok())
                 .map(LdapBindCred::Simple)
                 .ok_or(LdapProtoError::BindCredBer),
+            3 => value
+                .expect_constructed()
+                .ok_or(LdapProtoError::BindCredBer)
+                .and_then(SaslCredentials::try_from)
+                .map(LdapBindCred::SASL),
             _ => Err(LdapProtoError::BindCredId),
         }
+    }
+}
+
+impl TryFrom<Vec<StructureTag>> for SaslCredentials {
+    type Error = LdapProtoError;
+
+    fn try_from(mut value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        value.reverse();
+
+        let mechanism = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .and_then(|bv| String::from_utf8(bv).ok())
+            .ok_or(LdapProtoError::BindCredBer)?;
+        let credentials = value
+            .pop()
+            .and_then(|t| t.match_class(TagClass::Universal))
+            .and_then(|t| t.match_id(Types::OctetString as u64))
+            .and_then(|t| t.expect_primitive())
+            .ok_or(LdapProtoError::BindCredBer)?;
+        Ok(SaslCredentials {
+            mechanism,
+            credentials,
+        })
     }
 }
 
