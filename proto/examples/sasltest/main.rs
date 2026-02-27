@@ -1,11 +1,10 @@
-use sspi::builders::EmptyInitializeSecurityContext;
 use sspi::AuthIdentity;
+use sspi::BufferType;
 use sspi::ClientRequestFlags;
 use sspi::CredentialUse;
 use sspi::DataRepresentation;
 use sspi::Ntlm;
 use sspi::SecurityBuffer;
-use sspi::SecurityBufferType;
 use sspi::SecurityStatus;
 use sspi::Sspi;
 use sspi::SspiImpl;
@@ -113,7 +112,7 @@ impl AuthProvier {
             .acquire_credentials_handle()
             .with_credential_use(CredentialUse::Outbound)
             .with_auth_data(&identity)
-            .execute()
+            .execute(&mut ntlm)
             .unwrap();
 
         Self {
@@ -123,15 +122,16 @@ impl AuthProvier {
     }
 
     fn step(&mut self, input: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut output_buffer = vec![SecurityBuffer::new(Vec::new(), SecurityBufferType::Token)];
+        let mut output_buffer = vec![SecurityBuffer::new(Vec::new(), BufferType::Token)];
 
         let mut input_buffer = vec![SecurityBuffer::new(
             input.to_vec().clone(),
-            SecurityBufferType::Token,
+            BufferType::Token,
         )];
-        let mut builder =
-            EmptyInitializeSecurityContext::<<Ntlm as SspiImpl>::CredentialsHandle>::new()
-                .with_credentials_handle(&mut self.credentials_handle)
+        let mut builder = self
+            .ntlm
+            .initialize_security_context()
+            .with_credentials_handle(&mut self.credentials_handle)
                 .with_context_requirements(
                     ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
                 )
@@ -142,7 +142,7 @@ impl AuthProvier {
 
         let result = self
             .ntlm
-            .initialize_security_context_impl(&mut builder)
+            .initialize_security_context_impl(&mut builder)?
             .resolve_to_result()?;
 
         if [
