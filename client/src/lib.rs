@@ -19,20 +19,16 @@ use rustls_platform_verifier::ConfigVerifierExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::time;
+
 use tokio_rustls::{
     client::TlsStream,
-    rustls::client::danger::*,
-    rustls::client::ClientConfig,
-    rustls::pki_types::{pem::PemObject, CertificateDer, ServerName, UnixTime},
+    rustls::client::{danger::*, ClientConfig},
+    rustls::pki_types::{CertificateDer, ServerName, UnixTime},
     rustls::Error as RustlsError,
-    rustls::RootCertStore,
     rustls::{DigitallySignedStruct, SignatureScheme},
     TlsConnector,
 };
@@ -274,40 +270,47 @@ impl From<LdapSearchResultEntry> for LdapEntry {
 pub struct LdapClientBuilder<'a> {
     url: &'a Url,
     timeout: Duration,
-    cas: Vec<&'a Path>,
-    verify: bool,
     /// The maximum LDAP packet size parsed during decoding.
     max_ber_size: Option<usize>,
+    rustls_client: Option<Arc<ClientConfig>>,
 }
 
 impl<'a> LdapClientBuilder<'a> {
     pub fn new(url: &'a Url) -> Self {
-        LdapClientBuilder {
+        Self {
             url,
             timeout: Duration::from_secs(30),
-            cas: Vec::new(),
-            verify: true,
             max_ber_size: None,
+            rustls_client: None,
         }
+    }
+
+    pub fn set_tls_config(&mut self, config: Option<Arc<ClientConfig>>) {
+        self.rustls_client = config
+    }
+
+    /// set the rustls [`ClientConfig`] used to handle ldaps connections
+    ///
+    /// if not set uses the platform verifier
+    pub fn with_tls_config(mut self, config: ClientConfig) -> Self {
+        self.set_tls_config(Some(Arc::new(config)));
+        self
+    }
+
+    /// set rustls [`ClientConfig`] to one that does not verify the server certificate
+    pub fn danger_accept_invalid_certs(self) -> Self {
+        warn!("⚠️ CERTIFICATE VERIFICATION IS DISABLED. THIS IS DANGEROUS!!!!");
+        let yolo_cert_validator = Arc::new(YoloCertValidator);
+
+        let client_config = ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(yolo_cert_validator)
+            .with_no_client_auth();
+        self.with_tls_config(client_config)
     }
 
     pub fn set_timeout(self, timeout: Duration) -> Self {
         Self { timeout, ..self }
-    }
-
-    pub fn add_tls_ca<T>(mut self, ca: &'a T) -> Self
-    where
-        T: AsRef<Path>,
-    {
-        self.cas.push(ca.as_ref());
-        self
-    }
-
-    pub fn danger_accept_invalid_certs(self, accept_invalid_certs: bool) -> Self {
-        Self {
-            verify: !accept_invalid_certs,
-            ..self
-        }
     }
 
     /// Set the maximum size of a decoded message
@@ -323,9 +326,8 @@ impl<'a> LdapClientBuilder<'a> {
         let LdapClientBuilder {
             url,
             timeout,
-            cas,
-            verify,
             max_ber_size,
+            rustls_client,
         } = self;
 
         info!(%url);
@@ -396,54 +398,16 @@ impl<'a> LdapClientBuilder<'a> {
 
         // If ldaps - start rustls
         let (write_transport, read_transport) = if need_tls {
-            // What about the `verify` flag?
-            let tls_client_config = if !cas.is_empty() {
-                let mut cert_store = RootCertStore::empty();
-                for ca in cas.iter() {
-                    let mut file = File::open(ca).map_err(|e| {
-                        error!(?e, "Unable to open {:?}", ca);
-                        LdapError::FileIOError
-                    })?;
-
-                    let mut pem = Vec::new();
-                    file.read_to_end(&mut pem).map_err(|e| {
-                        error!(?e, "Unable to read {:?}", ca);
-                        LdapError::FileIOError
-                    })?;
-
-                    let ca_cert = CertificateDer::from_pem_slice(pem.as_slice()).map_err(|e| {
-                        error!(?e, "rustls");
-                        LdapError::TlsError
-                    })?;
-
-                    cert_store
-                        .add(ca_cert)
-                        .map(|()| {
-                            info!("Added {:?} to cert store", ca);
-                        })
-                        .map_err(|e| {
-                            error!(?e, "rustls");
-                            LdapError::TlsError
-                        })?;
-                }
-
-                ClientConfig::builder()
-                    .with_root_certificates(cert_store)
-                    .with_no_client_auth()
-            } else if !verify {
-                warn!("⚠️ CERTIFICATE VERIFICATION IS DISABLED. THIS IS DANGEROUS!!!!");
-                let yolo_cert_validator = Arc::new(YoloCertValidator);
-
-                ClientConfig::builder()
-                    .dangerous()
-                    .with_custom_certificate_verifier(yolo_cert_validator)
-                    .with_no_client_auth()
+            let tls_client_config = if let Some(client_config) = rustls_client {
+                client_config
             } else {
-                // Just use the system CA roots.
-                ClientConfig::with_platform_verifier()
+                Arc::new(ClientConfig::with_platform_verifier().map_err(|e| {
+                    error!(?e, "rustls");
+                    LdapError::TlsError
+                })?)
             };
 
-            let tls_connector = TlsConnector::from(Arc::new(tls_client_config));
+            let tls_connector = TlsConnector::from(tls_client_config);
 
             let server_name = match url.host() {
                 Some(Host::Domain(name)) => {
@@ -632,14 +596,6 @@ fn test_ldapclient_builder() {
     assert_eq!(client.timeout, Duration::from_secs(30));
     let client = client.set_timeout(Duration::from_secs(60));
     assert_eq!(client.timeout, Duration::from_secs(60));
-    assert_eq!(client.cas.len(), 0);
     assert_eq!(client.max_ber_size, Some(1234567));
-    assert_eq!(client.verify, true);
-
-    let ca_path = "test.pem".to_string();
-    let client = client.add_tls_ca(&ca_path);
-    assert_eq!(client.cas.len(), 1);
-
-    let badssl_client = client.danger_accept_invalid_certs(true);
-    assert_eq!(badssl_client.verify, false);
+    assert!(client.rustls_client.is_none());
 }
