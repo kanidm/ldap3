@@ -272,7 +272,7 @@ pub struct LdapClientBuilder<'a> {
     timeout: Duration,
     /// The maximum LDAP packet size parsed during decoding.
     max_ber_size: Option<usize>,
-    rustls_client: Option<ClientConfig>,
+    rustls_client: Option<Arc<ClientConfig>>,
 }
 
 impl<'a> LdapClientBuilder<'a> {
@@ -285,14 +285,16 @@ impl<'a> LdapClientBuilder<'a> {
         }
     }
 
+    pub fn set_tls_config(&mut self, config: Option<Arc<ClientConfig>>) {
+        self.rustls_client = config
+    }
+
     /// set the rustls [`ClientConfig`] used to handle ldaps connections
     ///
     /// if not set uses the platform verifier
-    pub fn with_tls_config(self, config: ClientConfig) -> Self {
-        Self {
-            rustls_client: Some(config),
-            ..self
-        }
+    pub fn with_tls_config(mut self, config: ClientConfig) -> Self {
+        self.set_tls_config(Some(Arc::new(config)));
+        self
     }
 
     /// set rustls [`ClientConfig`] to one that does not verify the server certificate
@@ -399,13 +401,13 @@ impl<'a> LdapClientBuilder<'a> {
             let tls_client_config = if let Some(client_config) = rustls_client {
                 client_config
             } else {
-                ClientConfig::with_platform_verifier().map_err(|e| {
+                Arc::new(ClientConfig::with_platform_verifier().map_err(|e| {
                     error!(?e, "rustls");
                     LdapError::TlsError
-                })?
+                })?)
             };
 
-            let tls_connector = TlsConnector::from(Arc::new(tls_client_config));
+            let tls_connector = TlsConnector::from(tls_client_config);
 
             let server_name = match url.host() {
                 Some(Host::Domain(name)) => {
