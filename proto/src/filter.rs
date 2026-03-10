@@ -114,6 +114,18 @@ pub fn parse_ldap_filter_str(
     ldapfilter::parse(f)
 }
 
+#[cfg(feature = "serde")]
+pub fn deserialise_ldap_filter<'de, D>(des: D) -> Result<LdapFilter, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::{de::Error, Deserialize};
+
+    let raw = <&str>::deserialize(des)?;
+
+    ldapfilter::parse(raw).map_err(|err| D::Error::custom(format!("{:?}", err)))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
