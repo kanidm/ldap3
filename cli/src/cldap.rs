@@ -21,5 +21,5 @@ async fn main() {
     ldap3_cli_common::start_tracing(true);
     trace!("cldap command line utility");
 
-    let _opt = CldapOpt::from_args();
+    let _opt = CldapOpt::parse();
 }

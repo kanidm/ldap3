@@ -23,7 +23,7 @@ include!("./ldap_opt.rs");
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let opt = LdapOpt::from_args();
+    let opt = LdapOpt::parse();
     ldap3_cli_common::start_tracing(opt.verbose);
     info!("ldap command line utility");
 
