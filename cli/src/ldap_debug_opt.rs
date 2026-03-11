@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Debug, clap::ValueEnum, Clone)]
 enum DumpFormat {
     OpenLDAPMemDump,
 }

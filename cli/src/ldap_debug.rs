@@ -21,7 +21,7 @@ use tracing::*;
 include!("ldap_debug_opt.rs");
 
 fn main() {
-    let opt = LdapDebugOpt::from_args();
+    let opt = LdapDebugOpt::parse();
     ldap3_cli_common::start_tracing(opt.verbose);
     info!("ldap debugging assistance tool");
 

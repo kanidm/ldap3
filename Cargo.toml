@@ -21,23 +21,23 @@ keywords = ["ldap", "protocol", "authentication", "chaos"]
 ldap3_client = { path = "./client", version = "=0.6.2" }
 ldap3_proto = { path = "./proto", version = "=0.6.2" }
 
-base64 = "0.21"
+base64 = "0.22"
 bytes = "^1.1.0"
-clap = "^3.2"
-clap_complete = "^3.2.3"
+clap = "^4.0"
+clap_complete = "^4.0"
 futures = "^0.3.21"
 futures-util = "^0.3.21"
 lber = "^0.4.0"
 # Must match lber
 nom = "7"
 peg = "0.8.1"
-ron = "^0.8.0"
+ron = "^0.12.0"
 rpassword = "7.0.0"
 serde = { version = "^1.0.136", features = ["derive"] }
 serde_json = "^1.0.79"
 serde_test = "^1.0.56"
 serde_with = "3.9.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tokio = "^1.17.0"
 tokio-util = "^0.7.1"
 rustls = "0.23.36"
