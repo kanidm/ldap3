@@ -71,7 +71,7 @@ impl Decoder for LdapCodec {
             }
             Err(e) => {
                 error!(err = ?e, "lber parser");
-                return Err(io::Error::new(io::ErrorKind::Other, "lber parser"));
+                return Err(io::Error::other("lber parser"));
             }
         };
 
