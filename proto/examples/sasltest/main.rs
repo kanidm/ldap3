@@ -132,13 +132,13 @@ impl AuthProvier {
             .ntlm
             .initialize_security_context()
             .with_credentials_handle(&mut self.credentials_handle)
-                .with_context_requirements(
-                    ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
-                )
-                .with_target_data_representation(DataRepresentation::Native)
-                .with_target_name("ldap/ldapserver.domain.com")
-                .with_input(&mut input_buffer)
-                .with_output(&mut output_buffer);
+            .with_context_requirements(
+                ClientRequestFlags::CONFIDENTIALITY | ClientRequestFlags::ALLOCATE_MEMORY,
+            )
+            .with_target_data_representation(DataRepresentation::Native)
+            .with_target_name("ldap/ldapserver.domain.com")
+            .with_input(&mut input_buffer)
+            .with_output(&mut output_buffer);
 
         let result = self
             .ntlm
