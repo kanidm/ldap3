@@ -32,7 +32,6 @@ path = "src/ldap_debug.rs"
 [dependencies]
 base64.workspace = true
 clap = { workspace = true, features = ["derive"] }
-clap_complete.workspace = true
 ldap3_client.workspace = true
 ron.workspace = true
 rpassword.workspace = true
