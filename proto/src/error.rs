@@ -81,6 +81,8 @@ pub enum LdapProtoError {
     FilterTag,
     #[error("Invalid BER in filter")]
     FilterBer,
+    #[error("Recursion depth reached in filter")]
+    FilterRecursionDepth,
 
     #[error("Invalid BER in search")]
     SearchBer,

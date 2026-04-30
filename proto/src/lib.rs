@@ -109,12 +109,14 @@ impl Encoder<LdapMsg> for LdapCodec {
 #[cfg(test)]
 mod tests {
     use crate::control::LdapControl;
+    use crate::error::LdapProtoError;
     use crate::parse_ldap_filter_str;
     use crate::proto::*;
     use crate::LdapCodec;
     use bytes::BytesMut;
     use lber::common::TagClass;
-    use lber::structures::Tag;
+    use lber::structure::StructureTag;
+    use lber::structures::{ASNTag, Tag};
     use std::convert::TryInto;
     use tokio_util::codec::{Decoder, Encoder};
 
@@ -794,5 +796,32 @@ mod tests {
         } else {
             panic!("present search filter broken");
         }
+    }
+
+    #[test]
+    pub fn test_filter_depth_limit() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let filter = LdapFilter::Or(vec![LdapFilter::And(vec![LdapFilter::Present(
+            "cursed".to_string(),
+        )])]);
+
+        let encoded: Tag = filter.into();
+        let encoded: StructureTag = encoded.into_structure();
+
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 0).unwrap_err();
+        assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
+
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 1).unwrap_err();
+        assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
+
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 2).unwrap_err();
+        assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
+
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 3).unwrap_err();
+        assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
+
+        // Is allowed!
+        let _result = ldap_filter_from_structure_tag(encoded, 4).unwrap();
     }
 }

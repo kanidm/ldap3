@@ -5,30 +5,40 @@ use crate::{
     LdapFilter,
 };
 
+const LDAP_FILTER_MAX_DEPTH: usize = 128;
+
 peg::parser! {
     pub(crate) grammar ldapfilter() for str {
+        pub rule parse(max_depth: usize) -> LdapFilter =
+            separator()*
+            ( "(" {?
+                if max_depth == 0 {
+                    Err("too deeply nested")
+                } else {
+                    Ok(())
+                }
+            })
+            e:term(max_depth.saturating_sub(1))
+            ")" separator()* { e }
 
-        pub rule parse() -> LdapFilter =
-            separator()* "(" e:term() ")" separator()* { e }
-
-        rule term() -> LdapFilter =
-            not()
-            / and()
-            / or()
+        rule term(max_depth: usize) -> LdapFilter =
+            not(max_depth)
+            / and(max_depth)
+            / or(max_depth)
             / gte()
             / lte()
             / approx()
             / extend()
             / eq()
 
-        rule not() -> LdapFilter =
-            separator()* "!" f:parse() { LdapFilter::Not(Box::new(f)) }
+        rule not(max_depth: usize) -> LdapFilter =
+            separator()* "!" f:parse(max_depth) { LdapFilter::Not(Box::new(f)) }
 
-        rule and() -> LdapFilter =
-            separator()* "&" v:(parse()+) { LdapFilter::And(v) }
+        rule and(max_depth: usize) -> LdapFilter =
+            separator()* "&" v:(parse(max_depth)+) { LdapFilter::And(v) }
 
-        rule or() -> LdapFilter =
-            separator()* "|" v:(parse()+) { LdapFilter::Or(v) }
+        rule or(max_depth: usize) -> LdapFilter =
+            separator()* "|" v:(parse(max_depth)+) { LdapFilter::Or(v) }
 
         rule gte() -> LdapFilter =
             a:attr() ">=" v:value() { LdapFilter::GreaterOrEqual(a, v) }
@@ -111,7 +121,7 @@ peg::parser! {
 pub fn parse_ldap_filter_str(
     f: &str,
 ) -> Result<LdapFilter, peg::error::ParseError<peg::str::LineCol>> {
-    ldapfilter::parse(f)
+    ldapfilter::parse(f, LDAP_FILTER_MAX_DEPTH)
 }
 
 #[cfg(feature = "serde")]
@@ -123,7 +133,8 @@ where
 
     let raw = <&str>::deserialize(des)?;
 
-    ldapfilter::parse(raw).map_err(|err| D::Error::custom(format!("{:?}", err)))
+    ldapfilter::parse(raw, LDAP_FILTER_MAX_DEPTH)
+        .map_err(|err| D::Error::custom(format!("{:?}", err)))
 }
 
 #[cfg(test)]
@@ -333,5 +344,13 @@ mod test {
                 dn_attributes: true,
             })
         )
+    }
+
+    #[test]
+    fn test_peg_filter_recursion_limit() {
+        ldapfilter::parse("(&(|(eq=foo)))", 0).expect_err("Must Fail!");
+        ldapfilter::parse("(&(|(eq=foo)))", 1).expect_err("Must Fail!");
+        ldapfilter::parse("(&(|(eq=foo)))", 2).expect_err("Must Fail!");
+        ldapfilter::parse("(&(|(eq=foo)))", 3).expect("Must Succeed!");
     }
 }
