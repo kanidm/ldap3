@@ -22,7 +22,7 @@ impl LdapSession {
         if sbr.dn == "cn=Directory Manager" && sbr.pw == "password" {
             self.dn = sbr.dn.to_string();
             sbr.gen_success()
-        } else if sbr.dn == "" && sbr.pw == "" {
+        } else if sbr.dn.is_empty() && sbr.pw.is_empty() {
             self.dn = "Anonymous".to_string();
             sbr.gen_success()
         } else {
@@ -83,10 +83,7 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
 
     while let Some(msg) = reqs.next().await {
         debug!(?msg, "ldap message");
-        let server_op = match msg
-            .map_err(|_e| ())
-            .and_then(|msg| ServerOps::try_from(msg))
-        {
+        let server_op = match msg.map_err(|_e| ()).and_then(ServerOps::try_from) {
             Ok(v) => v,
             Err(_) => {
                 let _err = resp
@@ -112,12 +109,12 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
         };
 
         for rmsg in result.into_iter() {
-            if let Err(_) = resp.send(rmsg).await {
+            if resp.send(rmsg).await.is_err() {
                 return;
             }
         }
 
-        if let Err(_) = resp.flush().await {
+        if resp.flush().await.is_err() {
             return;
         }
     }
@@ -140,12 +137,18 @@ async fn acceptor(listener: Box<TcpListener>) {
 #[tokio::main]
 async fn main() -> () {
     tracing_subscriber::fmt::init();
-    let addr = net::SocketAddr::from_str("127.0.0.1:12345").unwrap();
-    let listener = Box::new(TcpListener::bind(&addr).await.unwrap());
+    let addr = net::SocketAddr::from_str("127.0.0.1:12345").expect("Unable to parse address");
+    let listener = Box::new(
+        TcpListener::bind(&addr)
+            .await
+            .expect("Failed to bind to address"),
+    );
 
     // Initiate the acceptor task.
     tokio::spawn(acceptor(listener));
 
     info!("started ldap://127.0.0.1:12345 ...");
-    tokio::signal::ctrl_c().await.unwrap();
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for ctrl_c signal");
 }
