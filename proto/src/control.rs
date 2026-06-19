@@ -1,12 +1,13 @@
 use std::fmt;
 
 use bytes::BytesMut;
-use lber::{
+use ldap3_lber::{
     Parser,
     common::TagClass,
     structure::StructureTag,
     structures::{ASNTag, Boolean, Enumerated, Integer, OctetString, Sequence, Tag},
     universal::Types,
+    write as lber_write,
 };
 use uuid::Uuid;
 
@@ -294,7 +295,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, value) = parser
                     .parse(&value_ber)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -350,7 +351,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, value) = parser
                     .parse(&value_ber)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -408,7 +409,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, value) = parser
                     .parse(&value_ber)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -445,7 +446,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, value) = parser
                     .parse(&value_ber)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -491,7 +492,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, value) = parser
                     .parse(&value_ber)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -540,7 +541,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_, tag) = parser
                     .parse(&value)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -593,7 +594,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, value) = parser
                     .parse(&value_ber)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -641,7 +642,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.expect_primitive())
                     .ok_or(LdapProtoError::ControlBer)?;
 
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, value) = parser
                     .parse(&value_ber)
                     .map_err(|_| LdapProtoError::ControlBer)?;
@@ -677,7 +678,7 @@ impl TryFrom<StructureTag> for LdapControl {
                     .and_then(|t| t.match_id(Types::OctetString as u64))
                     .and_then(|t| t.expect_primitive())
                 {
-                    let mut parser = Parser::new();
+                    let mut parser = Parser::default();
                     let (_rem, value) = parser
                         .parse(&value_ber)
                         .map_err(|_| LdapProtoError::ControlBer)?;
@@ -1023,7 +1024,7 @@ impl From<LdapControl> for Tag {
 
         if let Some(inner_tag) = inner_tag {
             let mut bytes = BytesMut::new();
-            lber::write::encode_into(&mut bytes, inner_tag.into_structure())
+            lber_write::encode_into(&mut bytes, inner_tag.into_structure())
                 .expect("Failed to encode inner structure, this is a bug!");
             inner.push(Tag::OctetString(OctetString {
                 inner: bytes.to_vec(),

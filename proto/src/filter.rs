@@ -5,7 +5,7 @@ use crate::{
     proto::{LdapMatchingRuleAssertion, LdapSubstringFilter},
 };
 
-const LDAP_FILTER_MAX_DEPTH: usize = 128;
+const LDAP_FILTER_MAX_DEPTH: usize = 64;
 
 peg::parser! {
     pub(crate) grammar ldapfilter() for str {

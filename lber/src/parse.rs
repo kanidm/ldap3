@@ -1,9 +1,6 @@
-use std::convert::TryFrom;
-
 use crate::common::TagClass;
 use crate::common::TagStructure;
 use crate::structure::{PL, StructureTag};
-
 use nom;
 use nom::bits::streaming as bits;
 use nom::bytes::streaming::take;
@@ -12,6 +9,9 @@ use nom::error::{Error, ErrorKind, ParseError};
 use nom::number::streaming as number;
 use nom::sequence::tuple;
 use nom::{IResult, InputLength, Needed};
+use std::convert::TryFrom;
+
+pub const DEFAULT_MAX_BER_DEPTH: usize = 128;
 
 fn class_bits(i: (&[u8], usize)) -> nom::IResult<(&[u8], usize), TagClass> {
     map_opt(bits::take(2usize), TagClass::from_u8)(i)
@@ -51,7 +51,15 @@ pub fn parse_uint(i: &[u8]) -> nom::IResult<&[u8], u64> {
 }
 
 /// Parse raw BER data into a serializable structure.
-pub fn parse_tag(i: &[u8]) -> nom::IResult<&[u8], StructureTag> {
+pub fn parse_tag(i: &[u8], remaining_depth: usize) -> nom::IResult<&[u8], StructureTag> {
+    let remaining_depth = remaining_depth.saturating_sub(1);
+    if remaining_depth == 0 {
+        return Err(nom::Err::Failure(Error::from_error_kind(
+            i,
+            ErrorKind::TooLarge,
+        )));
+    }
+
     let (mut i, ((class, structure, id), len)) = tuple((parse_type_header, parse_length))(i)?;
 
     let pl: PL = match structure {
@@ -67,7 +75,7 @@ pub fn parse_tag(i: &[u8]) -> nom::IResult<&[u8], StructureTag> {
 
             let mut tv: Vec<StructureTag> = Vec::new();
             while content.input_len() > 0 {
-                let (j, sub) = parse_tag(content)?;
+                let (j, sub) = parse_tag(content, remaining_depth)?;
                 content = j;
                 tv.push(sub);
             }
@@ -86,11 +94,13 @@ pub fn parse_tag(i: &[u8]) -> nom::IResult<&[u8], StructureTag> {
     ))
 }
 
-pub struct Parser;
+pub struct Parser {
+    max_depth: usize,
+}
 
 impl Parser {
-    pub fn new() -> Self {
-        Self
+    pub fn new(max_depth: usize) -> Self {
+        Self { max_depth }
     }
 
     pub fn parse<'a>(
@@ -100,13 +110,15 @@ impl Parser {
         if input.is_empty() {
             return Err(nom::Err::Incomplete(Needed::Unknown));
         };
-        parse_tag(input)
+        parse_tag(input, self.max_depth)
     }
 }
 
 impl Default for Parser {
     fn default() -> Self {
-        Self::new()
+        Self {
+            max_depth: DEFAULT_MAX_BER_DEPTH,
+        }
     }
 }
 
@@ -115,6 +127,8 @@ mod test {
     use super::*;
     use crate::common::TagClass;
     use crate::structure::{PL, StructureTag};
+
+    const DEFAULT_TEST_BER_LIMIT: usize = 16;
 
     #[test]
     fn test_primitive() {
@@ -126,7 +140,7 @@ mod test {
         };
         let rest_tag: Vec<u8> = vec![];
 
-        let tag = parse_tag(&bytes[..]);
+        let tag = parse_tag(&bytes[..], DEFAULT_TEST_BER_LIMIT);
 
         assert_eq!(tag, Ok((&rest_tag[..], result_tag)));
     }
@@ -147,7 +161,7 @@ mod test {
         };
         let rest_tag: Vec<u8> = vec![];
 
-        let tag = parse_tag(&bytes[..]);
+        let tag = parse_tag(&bytes[..], DEFAULT_TEST_BER_LIMIT);
 
         assert_eq!(tag, Ok((&rest_tag[..], result_tag)));
     }
@@ -211,7 +225,7 @@ mod test {
 
         let rest_tag = Vec::new();
 
-        let tag = parse_tag(&bytes[..]);
+        let tag = parse_tag(&bytes[..], DEFAULT_TEST_BER_LIMIT);
         assert_eq!(tag, Ok((&rest_tag[..], result_tag)));
     }
 }

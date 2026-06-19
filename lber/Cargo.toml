@@ -2,6 +2,7 @@
 name = "ldap3_lber"
 description = "An ASN.1/BER parser/encoder based on nom"
 
+version.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -12,7 +13,6 @@ license = "MIT"
 categories = ["encoding", "parsing"]
 keywords = ["ASN1", "BER", "nom"]
 documentation = "https://docs.rs/ldap3_lber"
-version = "0.5.1"
 
 [dependencies]
 bytes.workspace = true
