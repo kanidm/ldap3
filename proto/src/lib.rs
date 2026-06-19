@@ -22,9 +22,11 @@ pub mod proto;
 pub mod simple;
 
 use bytes::{Buf, BytesMut};
-use lber::parse::Parser;
-use lber::structure::StructureTag;
-use lber::write as lber_write;
+use ldap3_lber::{
+    parse::{DEFAULT_MAX_BER_DEPTH, Parser},
+    structure::StructureTag,
+    write as lber_write,
+};
 use std::io;
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{error, trace};
@@ -38,20 +40,27 @@ pub const DEFAULT_MAX_BER_SIZE: usize = 32 * KILOBYTES;
 pub struct LdapCodec {
     /// Default is [DEFAULT_MAX_BER_SIZE]
     max_ber_size: usize,
+    /// Default is [DEFAULT_MAX_BER_DEPTH]
+    max_ber_depth: usize,
 }
 
 impl Default for LdapCodec {
     fn default() -> Self {
         LdapCodec {
             max_ber_size: DEFAULT_MAX_BER_SIZE,
+            max_ber_depth: DEFAULT_MAX_BER_DEPTH,
         }
     }
 }
 
 impl LdapCodec {
-    pub fn new(max_ber_size: Option<usize>) -> Self {
+    pub fn new(max_ber_size: Option<usize>, max_ber_depth: Option<usize>) -> Self {
         let max_ber_size = max_ber_size.unwrap_or(DEFAULT_MAX_BER_SIZE);
-        LdapCodec { max_ber_size }
+        let max_ber_depth = max_ber_depth.unwrap_or(DEFAULT_MAX_BER_DEPTH);
+        LdapCodec {
+            max_ber_size,
+            max_ber_depth,
+        }
     }
 }
 
@@ -61,7 +70,7 @@ impl Decoder for LdapCodec {
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // How many bytes to consume?
-        let mut parser = Parser::new();
+        let mut parser = Parser::new(self.max_ber_depth);
         let (rem, msg) = match parser.parse(buf) {
             Ok(r) => r,
             // Need more data
@@ -114,9 +123,12 @@ mod tests {
     use crate::parse_ldap_filter_str;
     use crate::proto::*;
     use bytes::BytesMut;
-    use lber::common::TagClass;
-    use lber::structure::StructureTag;
-    use lber::structures::{ASNTag, Tag};
+    use ldap3_lber::{
+        common::TagClass,
+        parse::Parser,
+        structure::StructureTag,
+        structures::{ASNTag, Tag},
+    };
     use std::convert::TryInto;
     use tokio_util::codec::{Decoder, Encoder};
 
@@ -401,7 +413,7 @@ mod tests {
     fn test_modify_from_raw() {
         use std::convert::TryFrom;
 
-        let mut parser = lber::parse::Parser::new();
+        let mut parser = Parser::default();
         let (_rem, msg) = parser
             .parse(&[
                 48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101,
@@ -459,7 +471,7 @@ mod tests {
 
         let _ = tracing_subscriber::fmt::try_init();
 
-        let mut parser = lber::parse::Parser::new();
+        let mut parser = Parser::default();
         let (_rem, msg) = parser
             .parse(&[
                 48, 35, 2, 1, 2, 101, 30, 10, 2, 16, 0, 4, 0, 4, 22, 73, 110, 118, 97, 108, 105,
@@ -563,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_message_partial() {
-        let mut parser = lber::parse::Parser::new();
+        let mut parser = Parser::default();
 
         let parse_result = parser.parse(&[
             48, 69, 2, 1, 2, 102, 64, 4, 39, 117, 105, 100, 61, 98, 106, 101, 110, 115, 101, 110,

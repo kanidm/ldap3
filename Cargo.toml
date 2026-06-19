@@ -8,7 +8,7 @@ members = ["lber", "proto", "client", "cli"]
 
 
 [workspace.package]
-version = "0.7.1"
+version = "0.8.0"
 authors = ["William Brown <william@blackhats.net.au>"]
 rust-version = "1.85"
 edition = "2024"
@@ -18,9 +18,9 @@ repository = "https://github.com/kanidm/ldap3/"
 keywords = ["ldap", "protocol", "authentication", "chaos"]
 
 [workspace.dependencies]
-ldap3_lber = { path = "./lber", version = "=0.5.1" }
-ldap3_client = { path = "./client", version = "=0.7.1" }
-ldap3_proto = { path = "./proto", version = "=0.7.1" }
+ldap3_lber = { path = "./lber", version = "=0.8.0" }
+ldap3_client = { path = "./client", version = "=0.8.0" }
+ldap3_proto = { path = "./proto", version = "=0.8.0" }
 
 base64 = "0.22"
 bytes = "^1.10.1"
@@ -28,7 +28,6 @@ clap = "^4.0"
 clap_complete = "^4.0"
 futures = "^0.3.21"
 futures-util = "^0.3.21"
-lber = "^0.4.0"
 nom = "7.1.3"
 peg = "0.8.1"
 ron = "^0.12.0"

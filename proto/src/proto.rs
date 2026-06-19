@@ -1,13 +1,14 @@
-use lber::common::TagClass;
-use lber::structure::{PL, StructureTag};
-use lber::structures::ASNTag;
-use lber::structures::{
-    Boolean, Enumerated, ExplicitTag, Integer, Null, OctetString, Sequence, Set, Tag,
+use ldap3_lber::{
+    common::TagClass,
+    parse::Parser,
+    structure::{PL, StructureTag},
+    structures::ASNTag,
+    structures::{
+        Boolean, Enumerated, ExplicitTag, Integer, Null, OctetString, Sequence, Set, Tag,
+    },
+    universal::Types,
+    write as lber_write,
 };
-use lber::universal::Types;
-use lber::write as lber_write;
-
-use lber::parse::Parser;
 
 use bytes::BytesMut;
 #[cfg(feature = "serde")]
@@ -766,7 +767,7 @@ impl TryFrom<&LdapExtendedRequest> for LdapPasswordModifyRequest {
             return Err(LdapProtoError::PasswordModifyRequestEmpty);
         };
 
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let (_rem, msg) = parser
             .parse(buf)
             .map_err(|_| LdapProtoError::PasswordModifyRequestBer)?;
@@ -844,7 +845,7 @@ impl TryFrom<&LdapExtendedResponse> for LdapPasswordModifyResponse {
             return Err(LdapProtoError::PasswordModifyResponseEmpty);
         };
 
-        let mut parser = Parser::new();
+        let mut parser = Parser::default();
         let (_rem, msg) = parser
             .parse(buf)
             .map_err(|_| LdapProtoError::PasswordModifyResponseBer)?;
@@ -894,7 +895,7 @@ impl LdapMsg {
     }
 
     pub fn try_from_openldap_mem_dump(bytes: &[u8]) -> Result<Self, LdapProtoError> {
-        let mut parser = lber::parse::Parser::new();
+        let mut parser = Parser::default();
         let (r1_bytes, msgid_tag) = parser
             .parse(bytes)
             .map_err(|_| LdapProtoError::OlMemDumpBer)?;
@@ -1693,14 +1694,10 @@ pub(crate) fn ldap_filter_from_structure_tag(
                             (1, PL::P(s)) => {
                                 filter.any.push(String::from_utf8(s.clone()).ok()?);
                             }
-                            (2, PL::P(s)) => {
-                                if i == bv.len() - 1 {
-                                    // If 'final' is present, it
-                                    // SHALL be the last element of 'substrings'.
-                                    filter.final_ = Some(String::from_utf8(s.clone()).ok()?);
-                                } else {
-                                    return None;
-                                }
+                            (2, PL::P(s)) if i == bv.len() - 1 => {
+                                // If 'final' is present, it
+                                // SHALL be the last element of 'substrings'.
+                                filter.final_ = Some(String::from_utf8(s.clone()).ok()?);
                             }
                             _ => return None,
                         }
@@ -2585,7 +2582,7 @@ impl TryFrom<Vec<StructureTag>> for LdapIntermediateResponse {
         match (name.as_deref(), value.as_ref()) {
             (Some("1.3.6.1.4.1.4203.1.9.1.4"), Some(buf)) => {
                 // It's a sync info done. Start to process the value.
-                let mut parser = Parser::new();
+                let mut parser = Parser::default();
                 let (_rem, msg) = parser
                     .parse(buf)
                     .map_err(|_| LdapProtoError::IntermediateResponseBer)?;

@@ -456,13 +456,19 @@ impl<U: Borrow<Url>> LdapClientBuilder<U> {
             let (r, w) = tokio::io::split(tlsstream);
             (
                 LdapWriteTransport::Tls(FramedWrite::new(w, LdapCodec::default())),
-                LdapReadTransport::Tls(FramedRead::new(r, LdapCodec::new(Some(max_ber_size)))),
+                LdapReadTransport::Tls(FramedRead::new(
+                    r,
+                    LdapCodec::new(Some(max_ber_size), None),
+                )),
             )
         } else {
             let (r, w) = tokio::io::split(tcpstream);
             (
                 LdapWriteTransport::Plain(FramedWrite::new(w, LdapCodec::default())),
-                LdapReadTransport::Plain(FramedRead::new(r, LdapCodec::new(Some(max_ber_size)))),
+                LdapReadTransport::Plain(FramedRead::new(
+                    r,
+                    LdapCodec::new(Some(max_ber_size), None),
+                )),
             )
         };
 
