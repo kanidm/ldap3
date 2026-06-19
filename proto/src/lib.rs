@@ -421,7 +421,7 @@ mod tests {
                 109, 112, 108, 101, 44, 100, 99, 61, 99, 111, 109, 48, 21, 48, 19, 10, 1, 2, 48,
                 14, 4, 2, 115, 110, 49, 8, 4, 6, 77, 111, 114, 114, 105, 115,
             ])
-            .unwrap();
+            .expect("failed to parse input");
         let op = LdapMsg::try_from(msg.clone()).expect("failed to decode");
 
         eprintln!("{:?}", op);
@@ -477,7 +477,7 @@ mod tests {
                 48, 35, 2, 1, 2, 101, 30, 10, 2, 16, 0, 4, 0, 4, 22, 73, 110, 118, 97, 108, 105,
                 100, 32, 115, 101, 115, 115, 105, 111, 110, 32, 99, 111, 111, 107, 105, 101,
             ])
-            .unwrap();
+            .expect("failed to parse input");
         let op = LdapMsg::try_from(msg.clone()).expect("failed to decode");
 
         eprintln!("{:?}", op);
@@ -492,7 +492,9 @@ mod tests {
         };
 
         let ler: LdapExtendedRequest = mrq.clone().into();
-        let mrq_dec: LdapPasswordModifyRequest = (&ler).try_into().unwrap();
+        let mrq_dec: LdapPasswordModifyRequest = (&ler)
+            .try_into()
+            .expect("failed to decode LdapPasswordModifyRequest");
         assert!(mrq == mrq_dec);
 
         let mrs = LdapPasswordModifyResponse {
@@ -506,7 +508,9 @@ mod tests {
         };
 
         let ler: LdapExtendedResponse = mrs.clone().into();
-        let mrs_dec: LdapPasswordModifyResponse = (&ler).try_into().unwrap();
+        let mrs_dec: LdapPasswordModifyResponse = (&ler)
+            .try_into()
+            .expect("failed to decode LdapPasswordModifyResponse");
         assert!(mrs == mrs_dec);
     }
 
@@ -590,18 +594,20 @@ mod tests {
 
     #[test]
     fn test_parse_wild_card() {
-        let filter = parse_ldap_filter_str("(cn=Info*Tech*Test)").unwrap();
-        let tag: Tag = filter.try_into().expect("filters cannot convert into tags");
+        let filter =
+            parse_ldap_filter_str("(cn=Info*Tech*Test)").expect("failed to parse substring filter");
+        let tag: Tag = filter.into();
         if let Tag::Sequence(mut sequence) = tag {
             assert_eq!(sequence.id, 4);
             assert_eq!(sequence.class, TagClass::Context);
 
-            let mut substring_filter_tags = match sequence.inner.pop().unwrap() {
-                Tag::Sequence(sequence) => sequence,
-                _ => panic!("substring_filter_tags should be sequence"),
-            }
-            .inner;
-            let cn = sequence.inner.pop().unwrap();
+            let mut substring_filter_tags =
+                match sequence.inner.pop().expect("expecting substring filter") {
+                    Tag::Sequence(sequence) => sequence,
+                    _ => panic!("substring_filter_tags should be sequence"),
+                }
+                .inner;
+            let cn = sequence.inner.pop().expect("expecting cn");
             match cn {
                 Tag::OctetString(string) => {
                     assert_eq!(string.id, 4);
@@ -688,7 +694,7 @@ mod tests {
 
     #[test]
     pub fn test_present_filter() {
-        let filter = parse_ldap_filter_str("(cn=*)").unwrap();
+        let filter = parse_ldap_filter_str("(cn=*)").expect("failed to parse present filter");
         if let LdapFilter::Present(p) = filter {
             assert_eq!(p, "cn")
         } else {
@@ -801,7 +807,7 @@ mod tests {
 
     #[test]
     pub fn test_equality_filter() {
-        let filter = parse_ldap_filter_str("(cn=test)").unwrap();
+        let filter = parse_ldap_filter_str("(cn=test)").expect("failed to parse equality filter");
         if let LdapFilter::Equality(name, value) = filter {
             assert_eq!(name, "cn");
             assert_eq!(value, "test")
@@ -821,19 +827,24 @@ mod tests {
         let encoded: Tag = filter.into();
         let encoded: StructureTag = encoded.into_structure();
 
-        let result = ldap_filter_from_structure_tag(encoded.clone(), 0).unwrap_err();
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 0)
+            .expect_err("expected FilterRecursionDepth error");
         assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
 
-        let result = ldap_filter_from_structure_tag(encoded.clone(), 1).unwrap_err();
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 1)
+            .expect_err("expected FilterRecursionDepth error");
         assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
 
-        let result = ldap_filter_from_structure_tag(encoded.clone(), 2).unwrap_err();
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 2)
+            .expect_err("expected FilterRecursionDepth error");
         assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
 
-        let result = ldap_filter_from_structure_tag(encoded.clone(), 3).unwrap_err();
+        let result = ldap_filter_from_structure_tag(encoded.clone(), 3)
+            .expect_err("expected FilterRecursionDepth error");
         assert!(matches!(result, LdapProtoError::FilterRecursionDepth));
 
         // Is allowed!
-        let _result = ldap_filter_from_structure_tag(encoded, 4).unwrap();
+        let _result =
+            ldap_filter_from_structure_tag(encoded, 4).expect("should succeed at depth 4");
     }
 }

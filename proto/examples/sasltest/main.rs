@@ -29,9 +29,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .finish();
     tracing::subscriber::set_global_default(subs).expect("setting default subscriber failed");
 
-    let ldap_password = env::var("LDAP_PASSWORD").unwrap(); // password
-    let ldap_server_addr = env::var("LDAP_SERVER_ADDR").unwrap(); // domain.com:port
-    let ldap_username = env::var("LDAP_USERNAME").unwrap(); // username@domain
+    let ldap_password = env::var("LDAP_PASSWORD").expect("LDAP_PASSWORD not set"); // password
+    let ldap_server_addr = env::var("LDAP_SERVER_ADDR").expect("LDAP_SERVER_ADDR not set"); // domain.com:port
+    let ldap_username = env::var("LDAP_USERNAME").expect("LDAP_USERNAME not set"); // username@domain
+    #[allow(clippy::expect_used, clippy::expect_fun_call)]
     let addr = SocketAddr::from_str(&ldap_server_addr).expect(&format!(
         "Unable to parse address, addr is {:?}",
         &ldap_server_addr
@@ -42,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut framed = Framed::new(tcpstream, LdapCodec::default());
 
     let mut ntlm = AuthProvier::new(&ldap_username, &ldap_password);
-    let ntlm_token = ntlm.step(&[]).unwrap();
+    let ntlm_token = ntlm.step(&[]).expect("failed to generate initial token");
 
     let msg = LdapMsg {
         msgid: 1,
@@ -67,7 +68,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     LdapResultCode::SaslBindInProgress => {
                         if let Some(ref cred) = res.saslcreds {
-                            let ntlm_token = ntlm.step(cred).unwrap();
+                            let ntlm_token =
+                                ntlm.step(cred).expect("failed to generate NTLM token");
                             let msg = LdapMsg {
                                 msgid: 2,
                                 op: LdapOp::BindRequest(LdapBindRequest {
@@ -80,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 ctrl: vec![],
                             };
 
-                            let _ = framed.send(msg).await?;
+                            framed.send(msg).await?;
                         }
                     }
                     _ => {
@@ -102,7 +104,7 @@ struct AuthProvier {
 impl AuthProvier {
     fn new(ldap_username: &str, ldap_password: &str) -> Self {
         let identity = AuthIdentity {
-            username: Username::parse(ldap_username).unwrap(),
+            username: Username::parse(ldap_username).expect("failed to parse LDAP username"),
             password: ldap_password.to_string().into(),
         };
 
@@ -113,7 +115,7 @@ impl AuthProvier {
             .with_credential_use(CredentialUse::Outbound)
             .with_auth_data(&identity)
             .execute(&mut ntlm)
-            .unwrap();
+            .expect("failed to acquire credentials handle");
 
         Self {
             ntlm,

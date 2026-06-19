@@ -89,16 +89,16 @@ mod tests {
             ]),
         };
 
-        let mut subt = tag.expect_constructed().unwrap();
+        let mut subt = tag.expect_constructed().expect("should be constructed");
 
         let b = subt
             .pop()
-            .unwrap()
+            .expect("failed to get b")
             .match_class(TagClass::Application)
             .and_then(|x| x.match_id(3));
         let a = subt
             .pop()
-            .unwrap()
+            .expect("failed to get a")
             .match_class(TagClass::Universal)
             .and_then(|x| x.match_id(2));
 

@@ -78,7 +78,7 @@ fn write_type(w: &mut dyn Write, class: TagClass, structure: TagStructure, id: u
 
     if let Some(mut ext_bytes) = extended_tag {
         for _ in 0..ext_bytes.len() - 1 {
-            let mut byte = ext_bytes.pop().unwrap();
+            let mut byte = ext_bytes.pop().expect("should have at least one byte");
 
             // Set the first bit
             byte |= 0x80;
@@ -86,7 +86,7 @@ fn write_type(w: &mut dyn Write, class: TagClass, structure: TagStructure, id: u
             let _ = w.write(&[byte]);
         }
 
-        let byte = ext_bytes.pop().unwrap();
+        let byte = ext_bytes.pop().expect("should have at least one byte");
         let _ = w.write(&[byte]);
     }
 }
@@ -132,7 +132,7 @@ mod tests {
         });
 
         let mut buf = BytesMut::new();
-        super::encode_into(&mut buf, tag.into_structure()).unwrap();
+        super::encode_into(&mut buf, tag.into_structure()).expect("failed to encode tag");
 
         assert_eq!(buf, vec![0x2, 0x2, 0x06, 0x50]);
     }
@@ -148,7 +148,7 @@ mod tests {
         });
 
         let mut buf = BytesMut::new();
-        super::encode_into(&mut buf, tag.into_structure()).unwrap();
+        super::encode_into(&mut buf, tag.into_structure()).expect("failed to encode tag");
 
         assert_eq!(
             buf,
@@ -196,7 +196,7 @@ mod tests {
         ];
 
         let mut buf = BytesMut::new();
-        super::encode_into(&mut buf, tag.into_structure()).unwrap();
+        super::encode_into(&mut buf, tag.into_structure()).expect("failed to encode tag");
 
         assert_eq!(buf, expected);
     }

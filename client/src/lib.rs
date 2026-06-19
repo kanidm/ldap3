@@ -612,7 +612,7 @@ impl ServerCertVerifier for YoloCertValidator {
 /// Doesn't test the actual *build* step because that requires a live LDAP server.
 #[test]
 fn test_ldapclient_builder() {
-    let url = Url::parse("ldap://ldap.example.com:389").unwrap();
+    let url = Url::parse("ldap://ldap.example.com:389").expect("failed to parse URL");
     let client = LdapClientBuilder::new(&url).max_ber_size(Some(1234567));
     assert_eq!(client.timeout, Duration::from_secs(30));
     let client = client.set_timeout(Duration::from_secs(60));

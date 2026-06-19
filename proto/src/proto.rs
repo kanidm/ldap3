@@ -1673,7 +1673,7 @@ pub(crate) fn ldap_filter_from_structure_tag(
                 .and_then(|bv| {
                     let mut filter = LdapSubstringFilter::default();
                     for (
-                        i,
+                        tag_index,
                         StructureTag {
                             class: _,
                             id,
@@ -1682,19 +1682,15 @@ pub(crate) fn ldap_filter_from_structure_tag(
                     ) in bv.iter().enumerate()
                     {
                         match (id, payload) {
-                            (0, PL::P(s)) => {
-                                if i == 0 {
-                                    // If 'initial' is present, it SHALL
-                                    // be the first element of 'substrings'.
-                                    filter.initial = Some(String::from_utf8(s.clone()).ok()?);
-                                } else {
-                                    return None;
-                                }
+                            (0, PL::P(s)) if tag_index == 0 => {
+                                // If 'initial' is present, it SHALL
+                                // be the first element of 'substrings'.
+                                filter.initial = Some(String::from_utf8(s.clone()).ok()?);
                             }
                             (1, PL::P(s)) => {
                                 filter.any.push(String::from_utf8(s.clone()).ok()?);
                             }
-                            (2, PL::P(s)) if i == bv.len() - 1 => {
+                            (2, PL::P(s)) if tag_index == bv.len() - 1 => {
                                 // If 'final' is present, it
                                 // SHALL be the last element of 'substrings'.
                                 filter.final_ = Some(String::from_utf8(s.clone()).ok()?);
