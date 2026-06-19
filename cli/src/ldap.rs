@@ -17,7 +17,7 @@ use ldap3_client::*;
 use rustls::pki_types::pem::PemObject;
 use tracing::*;
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 
 include!("./ldap_opt.rs");
 

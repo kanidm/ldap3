@@ -10,8 +10,8 @@ use std::net;
 use std::str::FromStr;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use ldap3_proto::simple::*;
 use ldap3_proto::LdapCodec;
+use ldap3_proto::simple::*;
 
 pub struct LdapSession {
     dn: String,
@@ -90,7 +90,7 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
             Ok(v) => v,
             Err(_) => {
                 let _err = resp
-                    .send(DisconnectionNotice::gen(
+                    .send(DisconnectionNotice::gen_response(
                         LdapResultCode::Other,
                         "Internal Server Error",
                     ))

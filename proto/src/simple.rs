@@ -106,7 +106,7 @@ impl TryFrom<LdapMsg> for ServerOps {
 }
 
 impl DisconnectionNotice {
-    pub fn gen(code: LdapResultCode, msg: &str) -> LdapMsg {
+    pub fn gen_response(code: LdapResultCode, msg: &str) -> LdapMsg {
         // name 1.3.6.1.4.1.1466.20036
         // value == ""
         LdapMsg {

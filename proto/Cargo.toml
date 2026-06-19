@@ -18,7 +18,7 @@ serde = ["dep:serde", "uuid/serde"]
 [dependencies]
 base64.workspace = true
 bytes.workspace = true
-lber.workspace = true
+lber = { workspace = true, package = "ldap3_lber" }
 nom.workspace = true
 peg.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }

@@ -1,5 +1,5 @@
 use lber::common::TagClass;
-use lber::structure::{StructureTag, PL};
+use lber::structure::{PL, StructureTag};
 use lber::structures::ASNTag;
 use lber::structures::{
     Boolean, Enumerated, ExplicitTag, Integer, Null, OctetString, Sequence, Set, Tag,

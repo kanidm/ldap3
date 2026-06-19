@@ -108,11 +108,11 @@ impl Encoder<LdapMsg> for LdapCodec {
 
 #[cfg(test)]
 mod tests {
+    use crate::LdapCodec;
     use crate::control::LdapControl;
     use crate::error::LdapProtoError;
     use crate::parse_ldap_filter_str;
     use crate::proto::*;
-    use crate::LdapCodec;
     use bytes::BytesMut;
     use lber::common::TagClass;
     use lber::structure::StructureTag;

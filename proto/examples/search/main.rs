@@ -2,13 +2,12 @@ use std::{env, net::SocketAddr, str::FromStr, vec};
 
 use futures_util::{SinkExt, StreamExt};
 use ldap3_proto::{
-    parse_ldap_filter_str,
+    LdapCodec, LdapMsg, LdapResultCode, parse_ldap_filter_str,
     proto::{LdapBindCred, LdapBindRequest, LdapOp, LdapSearchRequest},
-    LdapCodec, LdapMsg, LdapResultCode,
 };
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
-use tracing::{info, Level};
+use tracing::{Level, info};
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
