@@ -1,8 +1,8 @@
 //! LDAP Filter Parser
 
 use crate::{
-    proto::{LdapMatchingRuleAssertion, LdapSubstringFilter},
     LdapFilter,
+    proto::{LdapMatchingRuleAssertion, LdapSubstringFilter},
 };
 
 const LDAP_FILTER_MAX_DEPTH: usize = 128;
@@ -129,11 +129,11 @@ pub fn deserialise_ldap_filter<'de, D>(des: D) -> Result<LdapFilter, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::{de::Error, Deserialize};
+    use serde::{Deserialize, de::Error};
 
-    let raw = <&str>::deserialize(des)?;
+    let raw = <String>::deserialize(des)?;
 
-    ldapfilter::parse(raw, LDAP_FILTER_MAX_DEPTH)
+    ldapfilter::parse(&raw, LDAP_FILTER_MAX_DEPTH)
         .map_err(|err| D::Error::custom(format!("{:?}", err)))
 }
 

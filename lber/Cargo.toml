@@ -1,0 +1,19 @@
+[package]
+name = "ldap3_lber"
+description = "An ASN.1/BER parser/encoder based on nom"
+
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+license = "MIT"
+categories = ["encoding", "parsing"]
+keywords = ["ASN1", "BER", "nom"]
+documentation = "https://docs.rs/ldap3_lber"
+version = "0.5.1"
+
+[dependencies]
+bytes.workspace = true
+nom.workspace = true

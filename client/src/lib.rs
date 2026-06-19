@@ -10,11 +10,11 @@
 // We allow expect since it forces good error messages at the least.
 #![allow(clippy::expect_used)]
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
-use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
+use ldap3_proto::proto::*;
 use rustls_platform_verifier::ConfigVerifierExt;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
@@ -26,12 +26,12 @@ use tokio::net::TcpStream;
 use tokio::time;
 
 use tokio_rustls::{
-    client::TlsStream,
-    rustls::client::{danger::*, ClientConfig},
-    rustls::pki_types::{CertificateDer, ServerName, UnixTime},
-    rustls::Error as RustlsError,
-    rustls::{DigitallySignedStruct, SignatureScheme},
     TlsConnector,
+    client::TlsStream,
+    rustls::Error as RustlsError,
+    rustls::client::{ClientConfig, danger::*},
+    rustls::pki_types::{CertificateDer, ServerName, UnixTime},
+    rustls::{DigitallySignedStruct, SignatureScheme},
 };
 
 use tokio_util::codec::{FramedRead, FramedWrite};
@@ -113,12 +113,23 @@ impl fmt::Display for LdapError {
             LdapError::TransportWriteError => {
                 write!(f, "An error occurred writing to the transport")
             }
-            LdapError::UnavailableCriticalExtension => write!(f, "An extension marked as critical was not available"),
+            LdapError::UnavailableCriticalExtension => {
+                write!(f, "An extension marked as critical was not available")
+            }
             LdapError::InvalidCredentials => write!(f, "Invalid DN or Password"),
             LdapError::InsufficentAccessRights => write!(f, "Insufficient Access"),
-            LdapError::UnwillingToPerform => write!(f, "Too many failures, server is unwilling to perform the operation."),
-            LdapError::EsyncRefreshRequired => write!(f, "An initial content sync is required. The current cookie should be considered invalid."),
-            LdapError::NotImplemented => write!(f, "An error occurred, but we haven't implemented code to handle this error yet.")
+            LdapError::UnwillingToPerform => write!(
+                f,
+                "Too many failures, server is unwilling to perform the operation."
+            ),
+            LdapError::EsyncRefreshRequired => write!(
+                f,
+                "An initial content sync is required. The current cookie should be considered invalid."
+            ),
+            LdapError::NotImplemented => write!(
+                f,
+                "An error occurred, but we haven't implemented code to handle this error yet."
+            ),
         }
     }
 }

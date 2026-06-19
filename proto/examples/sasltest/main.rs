@@ -19,8 +19,8 @@ use tracing::Level;
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 
-use ldap3_proto::proto::*;
 use ldap3_proto::LdapCodec;
+use ldap3_proto::proto::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

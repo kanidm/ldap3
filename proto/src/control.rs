@@ -2,19 +2,18 @@ use std::fmt;
 
 use bytes::BytesMut;
 use lber::{
+    Parser,
     common::TagClass,
     structure::StructureTag,
     structures::{ASNTag, Boolean, Enumerated, Integer, OctetString, Sequence, Tag},
     universal::Types,
-    Parser,
 };
 use uuid::Uuid;
 
 use crate::{
-    bytes_to_string,
+    LdapResultCode, bytes_to_string,
     error::LdapProtoError,
-    proto::{ber_bool_to_bool, ber_integer_to_i64, SyncRequestMode, SyncStateValue},
-    LdapResultCode,
+    proto::{SyncRequestMode, SyncStateValue, ber_bool_to_bool, ber_integer_to_i64},
 };
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
