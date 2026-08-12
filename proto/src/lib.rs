@@ -40,6 +40,8 @@ pub const DEFAULT_MAX_BER_SIZE: usize = 32 * KILOBYTES;
 pub struct LdapCodec {
     /// Default is [DEFAULT_MAX_BER_SIZE]
     max_ber_size: usize,
+    /// Default is [DEFAULT_MAX_BER_SIZE * 2]
+    max_buf_size: usize,
     /// Default is [DEFAULT_MAX_BER_DEPTH]
     max_ber_depth: usize,
 }
@@ -48,6 +50,7 @@ impl Default for LdapCodec {
     fn default() -> Self {
         LdapCodec {
             max_ber_size: DEFAULT_MAX_BER_SIZE,
+            max_buf_size: DEFAULT_MAX_BER_SIZE * 2,
             max_ber_depth: DEFAULT_MAX_BER_DEPTH,
         }
     }
@@ -56,9 +59,11 @@ impl Default for LdapCodec {
 impl LdapCodec {
     pub fn new(max_ber_size: Option<usize>, max_ber_depth: Option<usize>) -> Self {
         let max_ber_size = max_ber_size.unwrap_or(DEFAULT_MAX_BER_SIZE);
+        let max_buf_size = max_ber_size * 2;
         let max_ber_depth = max_ber_depth.unwrap_or(DEFAULT_MAX_BER_DEPTH);
         LdapCodec {
             max_ber_size,
+            max_buf_size,
             max_ber_depth,
         }
     }
@@ -69,6 +74,16 @@ impl Decoder for LdapCodec {
     type Error = io::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        // We need to check the buffer size here *first* before we start parsing
+        // the lber items. This still allows a few ber elements to be queued in the
+        // buffer but without them being excessive.
+        if buf.len() > self.max_buf_size {
+            return Err(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "lber buffer is too large",
+            ));
+        }
+
         // How many bytes to consume?
         let mut parser = Parser::new(self.max_ber_depth);
         let (rem, msg) = match parser.parse(buf) {
@@ -117,6 +132,7 @@ impl Encoder<LdapMsg> for LdapCodec {
 
 #[cfg(test)]
 mod tests {
+    use crate::DEFAULT_MAX_BER_SIZE;
     use crate::LdapCodec;
     use crate::control::LdapControl;
     use crate::error::LdapProtoError;
@@ -130,6 +146,7 @@ mod tests {
         structures::{ASNTag, Tag},
     };
     use std::convert::TryInto;
+    use std::io;
     use tokio_util::codec::{Decoder, Encoder};
 
     macro_rules! do_test {
@@ -846,5 +863,18 @@ mod tests {
         // Is allowed!
         let _result =
             ldap_filter_from_structure_tag(encoded, 4).expect("should succeed at depth 4");
+    }
+
+    #[test]
+    pub fn test_buffer_limit() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let mut buf = BytesMut::new();
+        let mut server_codec = LdapCodec::default();
+
+        buf.resize(DEFAULT_MAX_BER_SIZE * 4, 0);
+
+        let res = server_codec.decode(&mut buf).unwrap_err();
+
+        assert_eq!(res.kind(), io::ErrorKind::OutOfMemory);
     }
 }
