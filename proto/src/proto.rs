@@ -1533,9 +1533,16 @@ impl From<LdapBindResponse> for Vec<Tag> {
         res.into_tag_iter()
             .chain(once_with(|| {
                 saslcreds.map(|sc| {
+                    // Per RFC 4511 §4.2.2, serverSaslCreds is
+                    // [7] IMPLICIT OCTET STRING (context-specific,
+                    // primitive, tag 7 → wire byte 0x87). Emitting a
+                    // universal OCTET STRING (tag 0x04) is a protocol
+                    // error: Samba's ldb client, Windows, and openldap
+                    // all reject it with LDAP_PROTOCOL_ERROR.
                     Tag::OctetString(OctetString {
+                        id: 7,
+                        class: TagClass::Context,
                         inner: sc,
-                        ..Default::default()
                     })
                 })
             }))
@@ -3286,3 +3293,4 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchResultReference {
         Ok(LdapSearchResultReference { uris })
     }
 }
+

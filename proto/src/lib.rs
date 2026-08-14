@@ -185,6 +185,34 @@ mod tests {
     }
 
     #[test]
+    fn test_ldapserver_codec_bindresponse_saslcreds() {
+        let msg = LdapMsg {
+            msgid: 999999,
+            op: LdapOp::BindResponse(LdapBindResponse {
+                res: LdapResult {
+                    code: LdapResultCode::Success,
+                    matcheddn: "cn=Directory Manager".to_string(),
+                    message: "It works!".to_string(),
+                    referral: vec![],
+                },
+                saslcreds: Some(vec![0x01, 0x02, 0x03]),
+            }),
+            ctrl: vec![],
+        };
+
+        let mut buf = BytesMut::new();
+        let mut server_codec = LdapCodec::default();
+        assert!(server_codec.encode(msg.clone(), &mut buf).is_ok());
+        // serverSaslCreds is [7] IMPLICIT OCTET STRING (0x87) per RFC 4511 §4.2.2.
+        assert!(
+            buf.windows(5).any(|w| w == [0x87, 0x03, 0x01, 0x02, 0x03]),
+            "saslcreds missing from encoded bind response: {buf:02x?}"
+        );
+        let res = server_codec.decode(&mut buf).expect("failed to decode");
+        assert_eq!(res.expect("None found?"), msg);
+    }
+
+    #[test]
     fn test_ldapserver_codec_searchrequest() {
         do_test!(LdapMsg {
             msgid: 2_147_483_646,
