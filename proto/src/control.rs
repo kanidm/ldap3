@@ -974,11 +974,15 @@ impl From<LdapControl> for Tag {
                                 id: 0,
                             }));
                         }
-                        inner.push(Tag::Boolean(Boolean {
-                            inner: sort_request.reverse_order,
-                            class: TagClass::Context,
-                            id: 1,
-                        }));
+                        // DEFAULT FALSE is absent on the wire (RFC 4511 §5.1).
+                        if sort_request.reverse_order {
+                            let reverse = Tag::Boolean(Boolean {
+                                inner: true,
+                                class: TagClass::Context,
+                                id: 1,
+                            });
+                            inner.push(reverse);
+                        }
                         Tag::Sequence(Sequence {
                             inner,
                             ..Default::default()

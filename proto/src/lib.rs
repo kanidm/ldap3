@@ -255,6 +255,39 @@ mod tests {
     }
 
     #[test]
+    fn test_ldapserver_sort_control_default_reverse_omitted() {
+        let msg = LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::ServerSort {
+                sort_requests: vec![ServerSortRequet {
+                    attribute_name: "cn".to_string(),
+                    ordering_rule: None,
+                    reverse_order: false,
+                }],
+            }],
+        };
+
+        let mut buf = BytesMut::new();
+        let mut server_codec = LdapCodec::default();
+        assert!(server_codec.encode(msg, &mut buf).is_ok());
+        // reverseOrder DEFAULT FALSE is absent (RFC 4511 §5.1); [1] is 0x81.
+        assert!(
+            !buf.windows(2).any(|w| w == [0x81, 0x01]),
+            "default reverseOrder emitted: {buf:02x?}"
+        );
+    }
+
+    #[test]
     fn test_ldapserver_codec_searchrequest() {
         do_test!(LdapMsg {
             msgid: 2_147_483_646,
