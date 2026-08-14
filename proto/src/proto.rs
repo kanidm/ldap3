@@ -3358,4 +3358,161 @@ mod tests {
         assert!(result.is_ok(), "version 3 must parse: {result:?}");
     }
 
+    // RFC 2891 §1.1: SortKeyList is SEQUENCE OF SEQUENCE {
+    //   attributeType, [0] orderingRule OPTIONAL, [1] reverseOrder BOOLEAN }.
+    fn sort_key_tag(
+        attribute_name: &str,
+        ordering_rule: Option<&str>,
+        reverse_order: Option<bool>,
+    ) -> StructureTag {
+        let mut inner = vec![octetstring_tag(attribute_name)];
+        if let Some(rule) = ordering_rule {
+            inner.push(StructureTag {
+                class: TagClass::Context,
+                id: 0,
+                payload: PL::P(rule.as_bytes().to_vec()),
+            });
+        }
+        if let Some(reverse) = reverse_order {
+            inner.push(StructureTag {
+                class: TagClass::Context,
+                id: 1,
+                payload: PL::P(vec![if reverse { 0xff } else { 0x00 }]),
+            });
+        }
+        StructureTag {
+            class: TagClass::Universal,
+            id: Types::Sequence as u64,
+            payload: PL::C(inner),
+        }
+    }
+
+    fn sort_control_tag(keys: Vec<StructureTag>) -> StructureTag {
+        // controlValue holds the BER of SortKeyList inside an OCTET STRING.
+        let mut value_bytes = BytesMut::new();
+        lber_write::encode_into(
+            &mut value_bytes,
+            StructureTag {
+                class: TagClass::Universal,
+                id: Types::Sequence as u64,
+                payload: PL::C(keys),
+            },
+        )
+        .expect("encode SortKeyList");
+        StructureTag {
+            class: TagClass::Universal,
+            id: Types::Sequence as u64,
+            payload: PL::C(vec![
+                octetstring_tag("1.2.840.113556.1.4.473"),
+                StructureTag {
+                    class: TagClass::Universal,
+                    id: Types::OctetString as u64,
+                    payload: PL::P(value_bytes.to_vec()),
+                },
+            ]),
+        }
+    }
+
+    fn sort_request(
+        attribute_name: &str,
+        ordering_rule: Option<&str>,
+        reverse_order: bool,
+    ) -> crate::control::ServerSortRequet {
+        crate::control::ServerSortRequet {
+            attribute_name: attribute_name.to_string(),
+            ordering_rule: ordering_rule.map(str::to_string),
+            reverse_order,
+        }
+    }
+
+    #[test]
+    fn sort_control_single_key_parsed() {
+        let control = sort_control_tag(vec![sort_key_tag("cn", None, None)]);
+        let parsed = LdapControl::try_from(control).expect("parse sort control");
+        assert_eq!(
+            parsed,
+            LdapControl::ServerSort {
+                sort_requests: vec![sort_request("cn", None, false)],
+            }
+        );
+    }
+
+    #[test]
+    fn sort_control_multi_key_order_preserved() {
+        // Keys are highest-precedence first; a reversed vec would flip them.
+        let control = sort_control_tag(vec![
+            sort_key_tag("cn", None, None),
+            sort_key_tag("sn", None, None),
+        ]);
+        let parsed = LdapControl::try_from(control).expect("parse sort control");
+        assert_eq!(
+            parsed,
+            LdapControl::ServerSort {
+                sort_requests: vec![
+                    sort_request("cn", None, false),
+                    sort_request("sn", None, false),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn sort_control_ordering_rule_parsed() {
+        let control = sort_control_tag(vec![sort_key_tag(
+            "cn",
+            Some("caseIgnoreOrderingMatch"),
+            None,
+        )]);
+        let parsed = LdapControl::try_from(control).expect("parse sort control");
+        assert_eq!(
+            parsed,
+            LdapControl::ServerSort {
+                sort_requests: vec![sort_request("cn", Some("caseIgnoreOrderingMatch"), false)],
+            }
+        );
+    }
+
+    #[test]
+    fn sort_control_reverse_order_parsed() {
+        let control = sort_control_tag(vec![sort_key_tag("cn", None, Some(true))]);
+        let parsed = LdapControl::try_from(control).expect("parse sort control");
+        assert_eq!(
+            parsed,
+            LdapControl::ServerSort {
+                sort_requests: vec![sort_request("cn", None, true)],
+            }
+        );
+    }
+
+    #[test]
+    fn sort_control_full_key_parsed() {
+        let control = sort_control_tag(vec![sort_key_tag(
+            "cn",
+            Some("caseIgnoreOrderingMatch"),
+            Some(true),
+        )]);
+        let parsed = LdapControl::try_from(control).expect("parse sort control");
+        assert_eq!(
+            parsed,
+            LdapControl::ServerSort {
+                sort_requests: vec![sort_request("cn", Some("caseIgnoreOrderingMatch"), true)],
+            }
+        );
+    }
+
+    #[test]
+    fn sort_control_foreign_attribute_rejected() {
+        // attributeType must be an OCTET STRING.
+        let key = StructureTag {
+            class: TagClass::Universal,
+            id: Types::Integer as u64,
+            payload: PL::P(vec![1]),
+        };
+        let control = sort_control_tag(vec![key]);
+        assert!(matches!(
+            LdapControl::try_from(control),
+            Err(LdapProtoError::ControlBer)
+        ));
+    }
+
 }

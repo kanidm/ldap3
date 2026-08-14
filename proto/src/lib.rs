@@ -118,7 +118,7 @@ impl Encoder<LdapMsg> for LdapCodec {
 #[cfg(test)]
 mod tests {
     use crate::LdapCodec;
-    use crate::control::LdapControl;
+    use crate::control::{LdapControl, ServerSortRequet};
     use crate::error::LdapProtoError;
     use crate::parse_ldap_filter_str;
     use crate::proto::*;
@@ -220,6 +220,37 @@ mod tests {
                 uris: vec!["ldap://ldap.example.com/dc=example,dc=com".to_string()],
             }),
             ctrl: vec![],
+        });
+    }
+
+    #[test]
+    fn test_ldapserver_search_with_server_sort_control() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchRequest(LdapSearchRequest {
+                base: "dc=example,dc=com".to_string(),
+                scope: LdapSearchScope::Subtree,
+                aliases: LdapDerefAliases::Never,
+                sizelimit: 0,
+                timelimit: 0,
+                typesonly: false,
+                filter: LdapFilter::Present("objectClass".to_string()),
+                attrs: vec![],
+            }),
+            ctrl: vec![LdapControl::ServerSort {
+                sort_requests: vec![
+                    ServerSortRequet {
+                        attribute_name: "cn".to_string(),
+                        ordering_rule: None,
+                        reverse_order: false,
+                    },
+                    ServerSortRequet {
+                        attribute_name: "sn".to_string(),
+                        ordering_rule: Some("caseIgnoreOrderingMatch".to_string()),
+                        reverse_order: true,
+                    },
+                ],
+            }],
         });
     }
 
