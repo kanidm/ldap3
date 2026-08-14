@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[allow(clippy::expect_used, clippy::expect_fun_call)]
     let addr = SocketAddr::from_str(&ldap_server_addr).expect(&format!(
         "Unable to parse address, addr is {:?}",
-        &ldap_server_addr
+        ldap_server_addr
     ));
 
     let tcpstream = TcpStream::connect(addr).await?;
