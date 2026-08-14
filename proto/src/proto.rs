@@ -3278,6 +3278,10 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchResultReference {
     type Error = LdapProtoError;
 
     fn try_from(value: Vec<StructureTag>) -> Result<Self, Self::Error> {
+        // SIZE (1..MAX) per RFC 4511 §4.5.3.
+        if value.is_empty() {
+            return Err(LdapProtoError::LdapMsgBer);
+        }
         let mut uris = Vec::new();
 
         // Iterate over the StructureTags
@@ -3515,4 +3519,20 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn sort_control_empty_key_list_rejected() {
+        let control = sort_control_tag(vec![]);
+        assert!(matches!(
+            LdapControl::try_from(control),
+            Err(LdapProtoError::ControlBer)
+        ));
+    }
+
+    #[test]
+    fn search_result_reference_empty_rejected() {
+        assert!(matches!(
+            LdapSearchResultReference::try_from(vec![]),
+            Err(LdapProtoError::LdapMsgBer)
+        ));
+    }
 }
