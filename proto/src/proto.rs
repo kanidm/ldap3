@@ -3294,3 +3294,68 @@ impl TryFrom<Vec<StructureTag>> for LdapSearchResultReference {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ldap3_lber::structure::{PL, StructureTag};
+
+    fn int_tag(value: i64) -> StructureTag {
+        // Minimal two's-complement BER INTEGER, e.g. 3 -> [0x03].
+        let bytes = if (-128..=127).contains(&value) {
+            vec![value as u8]
+        } else {
+            let mut v = value;
+            let mut out = Vec::new();
+            while v != 0 && v != -1 {
+                out.push((v & 0xff) as u8);
+                v >>= 8;
+            }
+            out.push((v & 0xff) as u8);
+            out.reverse();
+            out
+        };
+        StructureTag {
+            class: TagClass::Universal,
+            id: Types::Integer as u64,
+            payload: PL::P(bytes),
+        }
+    }
+
+    fn octetstring_tag(s: &str) -> StructureTag {
+        StructureTag {
+            class: TagClass::Universal,
+            id: Types::OctetString as u64,
+            payload: PL::P(s.as_bytes().to_vec()),
+        }
+    }
+
+    fn simple_cred(password: &str) -> StructureTag {
+        // [0] (PRIMITIVE) OCTET STRING — simple authentication.
+        StructureTag {
+            class: TagClass::Context,
+            id: 0,
+            payload: PL::P(password.as_bytes().to_vec()),
+        }
+    }
+
+    /// RFC 4511 §4.2: a BindRequest whose version is not 3 must be rejected
+    /// at parse time.
+    #[test]
+    fn bind_request_version_2_rejected() {
+        // Children in sequence order: version, name, authentication.
+        let children = vec![int_tag(2), octetstring_tag("cn=test"), simple_cred("pw")];
+        let result = LdapBindRequest::try_from(children);
+        assert!(
+            matches!(result, Err(LdapProtoError::BindRequestVersion)),
+            "version 2 must be rejected, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn bind_request_version_3_accepted() {
+        let children = vec![int_tag(3), octetstring_tag("cn=test"), simple_cred("pw")];
+        let result = LdapBindRequest::try_from(children);
+        assert!(result.is_ok(), "version 3 must parse: {result:?}");
+    }
+
+}
