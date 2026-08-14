@@ -1,7 +1,7 @@
 use crate::proto::*;
 pub use crate::proto::{
     LdapFilter, LdapMsg, LdapPartialAttribute, LdapResultCode, LdapSearchResultEntry,
-    LdapSearchScope,
+    LdapSearchResultReference, LdapSearchScope,
 };
 use std::convert::TryFrom;
 
@@ -131,6 +131,16 @@ impl SearchRequest {
         LdapMsg {
             msgid: self.msgid,
             op: LdapOp::SearchResultEntry(entry),
+            ctrl: vec![],
+        }
+    }
+
+    /// Build a [`LdapOp::SearchResultReference`] message (RFC 4511 §4.5.3)
+    /// for a continuation reference returned during a search.
+    pub fn gen_result_reference(&self, reference: LdapSearchResultReference) -> LdapMsg {
+        LdapMsg {
+            msgid: self.msgid,
+            op: LdapOp::SearchResultReference(reference),
             ctrl: vec![],
         }
     }
