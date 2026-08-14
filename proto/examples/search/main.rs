@@ -20,7 +20,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ldap_server_addr = env::var("LDAP_SERVER_ADDR").expect("LDAP_SERVER_ADDR not set"); // domain.com:port
     let ldap_username_dn = env::var("LDAP_USERNAME_DN").expect("LDAP_USERNAME_DN not set"); // username@domain
     let addr = SocketAddr::from_str(&ldap_server_addr)
-        .unwrap_or_else(|_| panic!("Unable to parse address, addr is {:?}", &ldap_server_addr));
+        .unwrap_or_else(|_| panic!("Unable to parse address, addr is {:?}", ldap_server_addr));
 
     let tcpstream = TcpStream::connect(addr).await?;
 
