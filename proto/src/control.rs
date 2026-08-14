@@ -534,6 +534,74 @@ impl TryFrom<StructureTag> for LdapControl {
 
                 Ok(LdapControl::ManageDsaIT { criticality })
             }
+            // RFC 2891 §1.1.1: Server-Side Sort request control.
+            // Wire: SEQUENCE OF SEQUENCE { attributeType OCTET STRING,
+            //   [0] orderingRule OCTET STRING OPTIONAL,
+            //   [1] reverseOrder BOOLEAN }
+            "1.2.840.113556.1.4.473" => {
+                let value = value_tag
+                    .and_then(|t| t.match_class(TagClass::Universal))
+                    .and_then(|t| t.match_id(Types::OctetString as u64))
+                    .and_then(|t| t.expect_primitive())
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                let mut parser = Parser::default();
+                let (_, tag) = parser
+                    .parse(&value)
+                    .map_err(|_| LdapProtoError::ControlBer)?;
+
+                let mut sort_keys = tag
+                    .match_class(TagClass::Universal)
+                    .and_then(|t| t.match_id(Types::Sequence as u64))
+                    .and_then(|t| t.expect_constructed())
+                    .ok_or(LdapProtoError::ControlBer)?;
+
+                let mut requests = Vec::with_capacity(sort_keys.len());
+                while let Some(key_tag) = sort_keys.pop() {
+                    let mut inner = key_tag
+                        .match_class(TagClass::Universal)
+                        .and_then(|t| t.match_id(Types::Sequence as u64))
+                        .and_then(|t| t.expect_constructed())
+                        .ok_or(LdapProtoError::ControlBer)?;
+
+                    // Inner tags are pushed in order attr, [0] rule, [1] bool;
+                    // pop() yields them reverse: bool?, rule?, attr.
+                    let mut reverse_order = false;
+                    let mut ordering_rule = None;
+                    while let Some(t) = inner.pop() {
+                        // [1] reverseOrder — Context class, id 1, Boolean.
+                        if t.class == TagClass::Context && t.id == 1 {
+                            reverse_order = t
+                                .expect_primitive()
+                                .and_then(|bytes| bytes.first().copied())
+                                .map(|b| b != 0)
+                                .unwrap_or(false);
+                        // [0] orderingRule — Context class, id 0, OctetString.
+                        } else if t.class == TagClass::Context && t.id == 0 {
+                            ordering_rule =
+                                t.expect_primitive().map(|bytes| bytes_to_string!(bytes));
+                        // attributeType is the one mandatory field.
+                        } else if t.class == TagClass::Universal
+                            && t.id == Types::OctetString as u64
+                        {
+                            let bytes = t.expect_primitive().ok_or(LdapProtoError::ControlBer)?;
+                            requests.push(ServerSortRequet {
+                                attribute_name: bytes_to_string!(bytes),
+                                ordering_rule: ordering_rule.take(),
+                                reverse_order,
+                            });
+                            reverse_order = false;
+                        } else {
+                            return Err(LdapProtoError::ControlBer);
+                        }
+                    }
+                }
+
+                requests.reverse();
+                Ok(LdapControl::ServerSort {
+                    sort_requests: requests,
+                })
+            }
             "1.2.840.113556.1.4.474" => {
                 let value = value_tag
                     .and_then(|t| t.match_class(TagClass::Universal))
