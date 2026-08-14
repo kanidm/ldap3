@@ -230,6 +230,17 @@ mod tests {
     }
 
     #[test]
+    fn test_ldapserver_codec_searchresultreference() {
+        do_test!(LdapMsg {
+            msgid: 1,
+            op: LdapOp::SearchResultReference(LdapSearchResultReference {
+                uris: vec!["ldap://ldap.example.com/dc=example,dc=com".to_string()],
+            }),
+            ctrl: vec![],
+        });
+    }
+
+    #[test]
     fn test_ldapserver_codec_searchrequest() {
         do_test!(LdapMsg {
             msgid: 2_147_483_646,
