@@ -597,6 +597,10 @@ impl TryFrom<StructureTag> for LdapControl {
                     }
                 }
 
+                // RFC 2891 §1.1 requires at least one sort key.
+                if requests.is_empty() {
+                    return Err(LdapProtoError::ControlBer);
+                }
                 requests.reverse();
                 Ok(LdapControl::ServerSort {
                     sort_requests: requests,
