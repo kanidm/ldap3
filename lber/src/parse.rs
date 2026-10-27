@@ -75,9 +75,21 @@ pub fn parse_tag(i: &[u8], remaining_depth: usize) -> nom::IResult<&[u8], Struct
 
             let mut tv: Vec<StructureTag> = Vec::new();
             while content.input_len() > 0 {
-                let (j, sub) = parse_tag(content, remaining_depth)?;
-                content = j;
-                tv.push(sub);
+                match parse_tag(content, remaining_depth) {
+                    Ok((j, sub)) => {
+                        content = j;
+                        tv.push(sub);
+                    }
+                    // A child element that is not a complete TLV is
+                    // a malformed payload, not a truncated message:
+                    // the enclosing tag's own length was satisfied, so
+                    // no more bytes can complete it. Keep the decoded
+                    // prefix and stop; LDAP-level parsing then rejects
+                    // the message with a protocol error instead of
+                    // waiting for bytes that will never arrive.
+                    Err(nom::Err::Incomplete(_)) => break,
+                    Err(e) => return Err(e),
+                }
             }
 
             PL::C(tv)

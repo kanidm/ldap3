@@ -48,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msg = LdapMsg {
         msgid: 1,
         op: LdapOp::BindRequest(LdapBindRequest {
+            version: 3,
             dn: "".to_string(),
             cred: LdapBindCred::SASL(SaslCredentials {
                 mechanism: "GSS-SPNEGO".to_string(),
@@ -73,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let msg = LdapMsg {
                                 msgid: 2,
                                 op: LdapOp::BindRequest(LdapBindRequest {
+                                    version: 3,
                                     dn: "".to_string(),
                                     cred: LdapBindCred::SASL(SaslCredentials {
                                         mechanism: "GSS-SPNEGO".to_string(),

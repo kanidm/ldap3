@@ -67,6 +67,7 @@ impl TryFrom<LdapMsg> for ServerOps {
         let LdapMsg { msgid, op, ctrl: _ } = value;
         match op {
             LdapOp::BindRequest(LdapBindRequest {
+                version: _,
                 dn,
                 cred: LdapBindCred::Simple(pw),
             }) => Ok(ServerOps::SimpleBind(SimpleBindRequest { msgid, dn, pw })),

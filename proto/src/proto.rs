@@ -125,8 +125,23 @@ pub enum LdapResultCode {
     ObjectClassModsProhibited = 69,
     // 70
     AffectsMultipleDSAs = 71,
-    // 72 - 79
+    // 72 - 75, 77 - 79
+    /// draft-ietf-ldapext-ldapv3-vlv-09 §6.2.1: the search failed due to
+    /// the VirtualListViewRequest control.
+    VirtualListViewError = 76,
     Other = 80,
+    // RFC 4528 §2: assertion control failure.
+    AssertionFailed = 122,
+    /// RFC 3909 §2.2: the operation was cancelled.
+    Canceled = 118,
+    /// RFC 3909 §2.2: no operation with the given messageID.
+    NoSuchOperation = 119,
+    /// RFC 3909 §2.2: too far advanced to cancel.
+    TooLate = 120,
+    /// RFC 3909 §2.2: the operation cannot be cancelled.
+    CannotCancel = 121,
+    /// RFC 4370 §6: proxy authorization request not honored.
+    AuthorizationError = 123,
     EsyncRefreshRequired = 4096,
 }
 
@@ -182,6 +197,10 @@ pub enum LdapOp {
 pub enum LdapBindCred {
     Simple(String),
     SASL(SaslCredentials),
+    /// An AuthenticationChoice tag the parser does not know (e.g.
+    /// context tag [5]). RFC 4511 §4.2 requires the server to answer
+    /// authMethodNotSupported, so decoding must succeed.
+    Unsupported,
 }
 
 #[derive(Clone, PartialEq)]
@@ -227,6 +246,7 @@ impl fmt::Debug for LdapBindCred {
         match self {
             LdapBindCred::Simple(_) => f.debug_struct("LdapBindCred::Simple").finish(),
             LdapBindCred::SASL(_) => f.debug_struct("LdapBindCred::SASL").finish(),
+            LdapBindCred::Unsupported => f.debug_struct("LdapBindCred::Unsupported").finish(),
         }
     }
 }
@@ -235,6 +255,10 @@ impl fmt::Debug for LdapBindCred {
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub struct LdapBindRequest {
+    /// Protocol version from the request. RFC 4511 §4.2 requires the
+    /// server, not the parser, to reject versions other than 3 with
+    /// protocolError — so the value is passed through.
+    pub version: i64,
     pub dn: String,
     pub cred: LdapBindCred,
 }
@@ -484,6 +508,8 @@ pub enum LdapModifyType {
     Add = 0,
     Delete = 1,
     Replace = 2,
+    /// RFC 4525 modify-increment operation (enumerated value 3).
+    Increment = 3,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -877,6 +903,14 @@ impl From<LdapBindCred> for Tag {
                 inner: Vec::from(pw),
             }),
             LdapBindCred::SASL(token) => Tag::StructureTag(token.into()),
+            // Never re-encoded on the wire by servers; round-trips as
+            // an empty context-3 element so decode(encode(x)) still
+            // succeeds in tests.
+            LdapBindCred::Unsupported => Tag::OctetString(OctetString {
+                id: 3,
+                class: TagClass::Context,
+                inner: Vec::new(),
+            }),
         }
     }
 }
@@ -1280,7 +1314,9 @@ impl TryFrom<StructureTag> for LdapBindCred {
                 .ok_or(LdapProtoError::BindCredBer)
                 .and_then(SaslCredentials::try_from)
                 .map(LdapBindCred::SASL),
-            _ => Err(LdapProtoError::BindCredId),
+            // Unknown AuthenticationChoice tags decode as Unsupported;
+            // the server reports authMethodNotSupported per RFC 4511 §4.2.
+            _ => Ok(LdapBindCred::Unsupported),
         }
     }
 }
@@ -1298,12 +1334,15 @@ impl TryFrom<Vec<StructureTag>> for SaslCredentials {
             .and_then(|t| t.expect_primitive())
             .and_then(|bv| String::from_utf8(bv).ok())
             .ok_or(LdapProtoError::BindCredBer)?;
+        // RFC 4511 §4.2: credentials are OPTIONAL in SaslCredentials.
+        // An empty mechanism string decodes normally; the server
+        // rejects it with authMethodNotSupported.
         let credentials = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::OctetString as u64))
             .and_then(|t| t.expect_primitive())
-            .ok_or(LdapProtoError::BindCredBer)?;
+            .unwrap_or_default();
         Ok(SaslCredentials {
             mechanism,
             credentials,
@@ -1319,17 +1358,16 @@ impl TryFrom<Vec<StructureTag>> for LdapBindRequest {
         // BindRequest
         value.reverse();
 
-        // Check the version is 3
-        let v = value
+        // RFC 4511 §4.2: a version other than 3 is a protocol error
+        // the *server* must report in a BindResponse, so parsing
+        // succeeds and the version is passed through.
+        let version = value
             .pop()
             .and_then(|t| t.match_class(TagClass::Universal))
             .and_then(|t| t.match_id(Types::Integer as u64))
             .and_then(|t| t.expect_primitive())
             .and_then(ber_integer_to_i64)
             .ok_or(LdapProtoError::BindRequestVersion)?;
-        if v != 3 {
-            return Err(LdapProtoError::BindRequestVersion);
-        };
 
         // Get the DN
         let dn = value
@@ -1346,7 +1384,7 @@ impl TryFrom<Vec<StructureTag>> for LdapBindRequest {
             .and_then(|v| LdapBindCred::try_from(v).ok())
             .ok_or(LdapProtoError::BindRequestBer)?;
 
-        Ok(LdapBindRequest { dn, cred })
+        Ok(LdapBindRequest { version, dn, cred })
     }
 }
 
@@ -1354,7 +1392,7 @@ impl From<LdapBindRequest> for Vec<Tag> {
     fn from(value: LdapBindRequest) -> Vec<Tag> {
         vec![
             Tag::Integer(Integer {
-                inner: 3,
+                inner: value.version,
                 ..Default::default()
             }),
             Tag::OctetString(OctetString {
@@ -2885,6 +2923,7 @@ impl TryFrom<i64> for LdapModifyType {
             0 => Ok(LdapModifyType::Add),
             1 => Ok(LdapModifyType::Delete),
             2 => Ok(LdapModifyType::Replace),
+            3 => Ok(LdapModifyType::Increment),
             _ => Err(LdapProtoError::ModifyTypeValue),
         }
     }
@@ -3239,7 +3278,14 @@ impl TryFrom<i64> for LdapResultCode {
             68 => Ok(LdapResultCode::EntryAlreadyExists),
             69 => Ok(LdapResultCode::ObjectClassModsProhibited),
             71 => Ok(LdapResultCode::AffectsMultipleDSAs),
+            76 => Ok(LdapResultCode::VirtualListViewError),
             80 => Ok(LdapResultCode::Other),
+            122 => Ok(LdapResultCode::AssertionFailed),
+            118 => Ok(LdapResultCode::Canceled),
+            119 => Ok(LdapResultCode::NoSuchOperation),
+            120 => Ok(LdapResultCode::TooLate),
+            121 => Ok(LdapResultCode::CannotCancel),
+            123 => Ok(LdapResultCode::AuthorizationError),
             4096 => Ok(LdapResultCode::EsyncRefreshRequired),
             i => {
                 error!("Unknown i64 ecode {}", i);
@@ -3345,14 +3391,57 @@ mod tests {
     /// RFC 4511 §4.2: a BindRequest whose version is not 3 must be rejected
     /// at parse time.
     #[test]
-    fn bind_request_version_2_rejected() {
-        // Children in sequence order: version, name, authentication.
+    fn bind_request_version_passed_through() {
+        // RFC 4511 §4.2: the version check is the server's job; the
+        // parser passes the value through so the server can answer
+        // protocolError in a BindResponse.
         let children = vec![int_tag(2), octetstring_tag("cn=test"), simple_cred("pw")];
-        let result = LdapBindRequest::try_from(children);
-        assert!(
-            matches!(result, Err(LdapProtoError::BindRequestVersion)),
-            "version 2 must be rejected, got {result:?}"
-        );
+        let result = LdapBindRequest::try_from(children).expect("version 2 must parse");
+        assert_eq!(result.version, 2);
+        // Version 3 still parses identically.
+        let children = vec![int_tag(3), octetstring_tag("cn=test"), simple_cred("pw")];
+        let result = LdapBindRequest::try_from(children).expect("version 3 must parse");
+        assert_eq!(result.version, 3);
+    }
+
+    #[test]
+    fn bind_request_unknown_auth_choice_decodes_unsupported() {
+        // RFC 4511 §4.2: an unsupported AuthenticationChoice must be
+        // answered authMethodNotSupported by the server; the parser
+        // must not drop the message.
+        let unknown = StructureTag {
+            class: TagClass::Context,
+            id: 5,
+            payload: PL::P(Vec::new()),
+        };
+        let children = vec![int_tag(3), octetstring_tag("cn=test"), unknown];
+        let result = LdapBindRequest::try_from(children).expect("must parse");
+        assert!(matches!(result.cred, LdapBindCred::Unsupported));
+    }
+
+    #[test]
+    fn bind_request_empty_sasl_mechanism_decodes() {
+        // RFC 4511 §4.2: credentials are OPTIONAL in SaslCredentials;
+        // an empty mechanism is for the server to reject with
+        // authMethodNotSupported.
+        let sasl = StructureTag {
+            class: TagClass::Context,
+            id: 3,
+            payload: PL::C(vec![StructureTag {
+                class: TagClass::Universal,
+                id: Types::OctetString as u64,
+                payload: PL::P(Vec::new()),
+            }]),
+        };
+        let children = vec![int_tag(3), octetstring_tag(""), sasl];
+        let result = LdapBindRequest::try_from(children).expect("must parse");
+        match result.cred {
+            LdapBindCred::SASL(creds) => {
+                assert_eq!(creds.mechanism, "");
+                assert!(creds.credentials.is_empty());
+            }
+            other => panic!("expected SASL cred, got {other:?}"),
+        }
     }
 
     #[test]

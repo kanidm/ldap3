@@ -10,3 +10,4 @@
 * James Hodgkinson (yaleman)
 * Jiegec
 * Nitnelave
+* Daniel S. Reichenbach (danielsreichenbach) <danielsreichenbach@tuta.com>

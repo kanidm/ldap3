@@ -29,6 +29,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let msg = LdapMsg {
         msgid: 1,
         op: LdapOp::BindRequest(LdapBindRequest {
+            version: 3,
             dn: ldap_username_dn,
             cred: LdapBindCred::Simple(ldap_password),
         }),

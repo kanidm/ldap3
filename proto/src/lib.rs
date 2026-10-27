@@ -168,6 +168,7 @@ mod tests {
         do_test!(LdapMsg {
             msgid: 1,
             op: LdapOp::BindRequest(LdapBindRequest {
+                version: 3,
                 dn: "".to_string(),
                 cred: LdapBindCred::Simple("".to_string()),
             }),
@@ -969,6 +970,117 @@ mod tests {
     }
 
     #[test]
+    fn probe_empty_and_filter_search() {
+        let _ = tracing_subscriber::fmt::try_init();
+        // search: base ou=people..., scope 2, deref 0, limits 0, typesonly 0,
+        // filter a0 00 (empty AND, RFC 4526), attrs empty
+        let hex =
+            "3b0201026336020f6f753d70656f706c652c64633d6578616d706c652c64633d636f6d04020100040100";
+        let bytes_vec: Vec<u8> = (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("hex digit"))
+            .collect();
+        let _ = bytes_vec;
+        // build programmatically instead: simpler to hand-assemble below
+        let mut req: Vec<u8> = Vec::new();
+        let base = b"ou=people,dc=example,dc=com";
+        req.extend([0x04, base.len() as u8]);
+        req.extend_from_slice(base);
+        req.extend([0x0a, 0x01, 2]); // scope ENUMERATED wholeSubtree
+        req.extend([0x0a, 0x01, 0]); // deref ENUMERATED never
+        for v in [0u8, 0] {
+            req.extend([0x02, 0x01, v]);
+        } // size/time limits INTEGER
+        req.extend([0x01, 0x01, 0x00]); // typesOnly BOOLEAN FALSE
+        req.extend([0xa0, 0x00]); // empty AND
+        req.extend([0x30, 0x00]); // no attrs
+        let app3 = [0x63u8, req.len() as u8]
+            .iter()
+            .cloned()
+            .chain(req)
+            .collect::<Vec<u8>>();
+        let mut msg: Vec<u8> = vec![0x02, 0x01, 0x02];
+        msg.extend_from_slice(&app3);
+        let pdu = [0x30u8, msg.len() as u8]
+            .iter()
+            .cloned()
+            .chain(msg)
+            .collect::<Vec<u8>>();
+        let mut buf = bytes::BytesMut::from(&pdu[..]);
+        let mut codec = LdapCodec::default();
+        match codec.decode(&mut buf) {
+            Ok(Some(m)) => tracing::info!("decoded msgid={} op={:?}", m.msgid, m.op),
+            Ok(None) => tracing::info!("incomplete"),
+            Err(e) => tracing::info!("err {e:?}"),
+        }
+    }
+
+    #[test]
+    fn probe_bind_protocol_error_pdus() {
+        let _ = tracing_subscriber::fmt::try_init();
+        for (label, hex, expect_version, expect_cred) in [
+            // RFC 4511 §4.2: version 99 is unsupported; the server MUST
+            // answer protocolError. The parser passes it through.
+            ("v99", "300c020101600702016304008000", Some(99), "simple"),
+            // RFC 4511 §4.2.1: an empty SASL mechanism MUST get a
+            // BindResponse with authMethodNotSupported.
+            (
+                "sasl_empty",
+                "300e02010160090201030400a3020400",
+                Some(3),
+                "sasl-empty-mech",
+            ),
+            // RFC 4511 §4.2: AuthenticationChoice is extensible; the
+            // server answers authMethodNotSupported for unknown choices.
+            // The inner `00` is not a valid TLV; lber treats the
+            // constructed payload as malformed (empty) rather than
+            // reporting truncation forever.
+            (
+                "choice5",
+                "300d02010160080201030400a50100",
+                Some(3),
+                "unsupported",
+            ),
+        ] {
+            let bytes_vec: Vec<u8> = (0..hex.len() / 2)
+                .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("hex digit"))
+                .collect();
+            let mut buf = bytes::BytesMut::from(&bytes_vec[..]);
+            let mut codec = LdapCodec::default();
+            let msg = codec
+                .decode(&mut buf)
+                .unwrap_or_else(|e| panic!("{label}: decode error {e:?}"))
+                .expect("unexpected incomplete");
+            assert_eq!(msg.msgid, 1, "{label}: msgid must survive parsing");
+            match &msg.op {
+                crate::proto::LdapOp::BindRequest(br) => {
+                    assert_eq!(
+                        br.version,
+                        expect_version.expect("version tuple"),
+                        "{label}: version"
+                    );
+                    match expect_cred {
+                        "simple" => {
+                            assert!(matches!(br.cred, crate::proto::LdapBindCred::Simple(_)))
+                        }
+                        "sasl-empty-mech" => match &br.cred {
+                            crate::proto::LdapBindCred::SASL(sc) => {
+                                assert!(sc.mechanism.is_empty());
+                                assert!(sc.credentials.is_empty());
+                            }
+                            other => panic!("{label}: expected SASL, got {other:?}"),
+                        },
+                        "unsupported" => {
+                            assert!(matches!(br.cred, crate::proto::LdapBindCred::Unsupported))
+                        }
+                        other => panic!("{label}: unexpected cred kind {other:?}"),
+                    }
+                }
+                other => panic!("{label}: expected BindRequest, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     pub fn test_buffer_limit() {
         let _ = tracing_subscriber::fmt::try_init();
         let mut buf = BytesMut::new();
@@ -976,7 +1088,9 @@ mod tests {
 
         buf.resize(DEFAULT_MAX_BER_SIZE * 4, 0);
 
-        let res = server_codec.decode(&mut buf).unwrap_err();
+        let res = server_codec
+            .decode(&mut buf)
+            .expect_err("oversized buffer must fail");
 
         assert_eq!(res.kind(), io::ErrorKind::OutOfMemory);
     }

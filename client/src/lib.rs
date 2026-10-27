@@ -506,6 +506,7 @@ impl LdapClient {
         let msg = LdapMsg {
             msgid,
             op: LdapOp::BindRequest(LdapBindRequest {
+                version: 3,
                 dn,
                 cred: LdapBindCred::Simple(pw.into()),
             }),
