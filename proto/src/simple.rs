@@ -47,6 +47,7 @@ pub enum ServerOps {
     Unbind(UnbindRequest),
     Whoami(WhoamiRequest),
     Compare(CompareRequest),
+    Abandon { msgid: i32 },
 }
 
 // Implement by hand to avoid printing the password.
@@ -101,6 +102,7 @@ impl TryFrom<LdapMsg> for ServerOps {
                 "1.3.6.1.4.1.4203.1.11.3" => Ok(ServerOps::Whoami(WhoamiRequest { msgid })),
                 _ => Err(()),
             },
+            LdapOp::AbandonRequest(msgid) => Ok(ServerOps::Abandon { msgid }),
             _ => Err(()),
         }
     }

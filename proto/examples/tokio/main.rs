@@ -100,6 +100,7 @@ async fn handle_client(socket: TcpStream, _paddr: net::SocketAddr) {
         let result = match server_op {
             ServerOps::SimpleBind(sbr) => vec![session.do_bind(&sbr)],
             ServerOps::Search(sr) => session.do_search(&sr),
+            ServerOps::Abandon { .. } => continue,
             ServerOps::Unbind(_) => {
                 // No need to notify on unbind (per rfc4511)
                 return;
